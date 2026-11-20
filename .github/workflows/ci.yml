@@ -136,3 +136,25 @@ jobs:
           name: fuzz-artifacts
           path: crates/lunar-flows-core/fuzz/artifacts/
           if-no-files-found: ignore
+
+  # Garde-fous de la release : un contrôle qu'on n'a jamais vu échouer ne
+  # prouve rien. Le test fabrique des binaires émetteurs et vérifie que le
+  # contrôle de passivité les refuse.
+  gardes:
+    name: Garde-fous de release
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # libpcap rend compilable le cas central (binaire important
+      # pcap_sendpacket) ; REQUIRE_LIBPCAP=1 interdit au test de le sauter.
+      - name: Dépendances système
+        run: script/ci/install-linux-deps.sh --core
+
+      - name: Le contrôle de passivité refuse un binaire émetteur
+        run: script/ci/tests/test-check-binary-is-passive.sh
+        env:
+          REQUIRE_LIBPCAP: "1"

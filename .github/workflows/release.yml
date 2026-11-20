@@ -90,6 +90,13 @@ jobs:
       - name: Compilation release
         run: cargo build --release --locked -p lunar
 
+      # LUNAR écoute sans émettre : aucune primitive d'émission libpcap
+      # importée, aucun client HTTP embarqué. Vérifié sur le binaire livré.
+      - name: Passivité du binaire
+        run: script/ci/check-binary-is-passive.sh target/release/lunar
+        env:
+          EXPECT_LIBPCAP: "1"
+
       - name: Smoke test
         run: script/ci/smoke-linux.sh target/release/lunar
 
