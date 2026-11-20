@@ -28,3 +28,6 @@
 - `../images/logo-256.png` : logo de LUNAR (croissant de lune aux couleurs du
   thème), dessiné le 19/11/2026 avec ImageMagick (`convert`, cercles et
   rectangle arrondi sur une toile de 1024 px, réduite à 256 px).
+- `../images/logo.svg` : le même logo en vectoriel, redessiné à la main le
+  20/11/2026 d'après le PNG (deux arcs de cercle, trois disques, rectangle
+  arrondi). Il sert au README ; l'application embarque toujours le PNG.
