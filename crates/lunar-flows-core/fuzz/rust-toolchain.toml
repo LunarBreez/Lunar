@@ -1,0 +1,7 @@
+# cargo-fuzz exige une toolchain nightly (options -Z des sanitizers). Canal
+# figé : script/ci/install-cargo-fuzz.sh l'installe, et rustup ne l'applique
+# qu'aux commandes lancées depuis ce répertoire (script/fuzz/smoke.sh s'y
+# place).
+[toolchain]
+channel = "nightly-2026-07-29"
+profile = "minimal"

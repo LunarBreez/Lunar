@@ -81,10 +81,11 @@ L'identifiant d'application est `fr.lunar`. LUNAR range sous cet identifiant :
 | `crates/lunar-engine` | Moteur sans interface : capture, imports, labels, projets `.lunar`, exports, derrière la façade `Lunar`. |
 | `crates/lunar-ui-logic` | Logique d'interface sans fenêtre, avec ses tests : style et placement du graphe, ForceAtlas2, investigation, synthèse HTML, BPF, menus. |
 | `crates/lunar` | Interface : thème, composants, coquille (`app/`), vue du graphe (`graph_view/`). |
+| `crates/lunar-flows-core/fuzz` | Cibles de fuzzing (cargo-fuzz) des lecteurs de fichiers non fiables ; workspace à part, hors du `Cargo.lock` du produit. |
 | `fixtures/` | Captures, matrices, labels et relevés WinAudit de test. |
 | `windows/npcap-sdk` | Bibliothèques d'import du SDK Npcap, pour l'édition des liens sous Windows. |
 | `docs/` | Format de matrice LFMS (`LFMS.md`), notes de plateforme gpui (`gpui-plateforme.md`). |
-| `script/` | `build-windows-check.sh`, `ci/`, `e2e/`. |
+| `script/` | `build-windows-check.sh`, `ci/`, `e2e/`, `fuzz/`. |
 
 ## Vérifier
 
@@ -93,10 +94,12 @@ cargo fmt --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 script/build-windows-check.sh          # clippy et .exe Windows (cargo-xwin)
+script/fuzz/smoke.sh                   # fuzzing borné des lecteurs de fichiers
 ```
 
-Le harnais E2E et la mesure mémoire longue durée sont décrits dans
-`script/e2e/README.md`.
+Le fuzzing (cargo-fuzz, toolchain nightly) est décrit dans
+`crates/lunar-flows-core/fuzz/README.md`. Le harnais E2E et la mesure mémoire
+longue durée sont décrits dans `script/e2e/README.md`.
 
 Faites les essais graphiques **uniquement sur un écran Xvfb isolé**, jamais
 sur la session de l'opérateur (`env -u DISPLAY -u WAYLAND_DISPLAY -u
@@ -145,7 +148,9 @@ DBUS_SESSION_BUS_ADDRESS -u XAUTHORITY`).
   - Linux (Ubuntu 22.04) : formatage, clippy `-D warnings` et tests ;
   - Windows : clippy, compilation et `--version` sans Npcap ;
   - dépendances : `cargo deny check` (avis RustSec, licences, sources), selon
-    `deny.toml`.
+    `deny.toml` ;
+  - fuzzing borné des lecteurs de fichiers non fiables (capture PCAP, matrice
+    CSV, relevé WinAudit), 90 s par cible.
 - **`.github/workflows/release.yml`**, au push d'un tag `vX.Y.Z` égal à la
   version du workspace :
   - binaires release Linux et Windows, avec un smoke test pour chacun : sur
