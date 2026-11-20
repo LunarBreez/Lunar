@@ -144,7 +144,11 @@ DBUS_SESSION_BUS_ADDRESS -u XAUTHORITY`).
     Linux, première image sur Xvfb avec lavapipe ; sur Windows, `--version` ;
   - archives `lunar-X.Y.Z-x86_64-linux-gnu.tar.gz` et
     `lunar-X.Y.Z-x86_64-windows.zip`, `SHA256SUMS` ;
-  - attestation de provenance GitHub et release.
+  - attestation de provenance GitHub et signature Sigstore (cosign, sans clé)
+    de chaque archive, produites par le job qui l'a construite ;
+  - release créée en brouillon, rendue publique une fois tous les fichiers en
+    place (environnement `production`, où une validation manuelle peut être
+    exigée).
 - **Lancement manuel de `release.yml`** : il construit et teste sans rien
   publier ; les archives restent dans les artefacts du run.
 - **Actions tierces** : elles sont épinglées par SHA. Dependabot propose leurs
@@ -161,6 +165,10 @@ Pour vérifier une archive :
 ```bash
 sha256sum -c --ignore-missing SHA256SUMS
 gh attestation verify lunar-0.1.0-x86_64-linux-gnu.tar.gz --repo LunarBreez/Lunar
+cosign verify-blob lunar-0.1.0-x86_64-linux-gnu.tar.gz \
+  --bundle lunar-0.1.0-x86_64-linux-gnu.tar.gz.sigstore.json \
+  --certificate-identity "https://github.com/LunarBreez/Lunar/.github/workflows/release.yml@refs/tags/v0.1.0" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
 ## Hors périmètre
