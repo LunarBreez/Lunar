@@ -42,8 +42,12 @@ jobs:
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
+      # Le crate de fuzzing est un workspace à part : il se vérifie par son
+      # propre manifeste.
       - name: Formatage
-        run: cargo fmt --check
+        run: |
+          cargo fmt --check
+          cargo fmt --check --manifest-path crates/lunar-flows-core/fuzz/Cargo.toml
 
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -96,3 +100,39 @@ jobs:
 
       - name: Vérification des dépendances
         run: cargo deny --locked check
+
+  # Fuzzing borné des lecteurs de fichiers non fiables (capture PCAP, matrice
+  # CSV, relevé WinAudit) : la CI prouve à chaque push que les cibles
+  # s'exécutent et qu'aucun crash trivial n'existe. Les campagnes longues se
+  # font hors CI (crates/lunar-flows-core/fuzz/README.md).
+  fuzz:
+    name: Fuzzing borné (cargo-fuzz)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Dépendances système
+        run: script/ci/install-linux-deps.sh --core
+
+      - name: cargo-fuzz et toolchain nightly
+        run: script/ci/install-cargo-fuzz.sh
+
+      # Le crate de fuzzing a son propre Cargo.lock : il doit porter les
+      # versions du produit, sinon le fuzzing teste autre chose que le code
+      # livré.
+      - name: Cargo.lock du fuzzing aligné sur celui du produit
+        run: script/fuzz/sync-lock.sh --check
+
+      - name: Fuzzing borné
+        run: script/fuzz/smoke.sh
+
+      - name: Entrées de crash
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-artifacts
+          path: crates/lunar-flows-core/fuzz/artifacts/
+          if-no-files-found: ignore

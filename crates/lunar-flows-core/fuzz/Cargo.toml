@@ -1,0 +1,44 @@
+# Cibles de fuzzing (cargo-fuzz) de lunar-flows-core.
+#
+# Workspace à part, volontairement : libfuzzer-sys et ses dépendances restent
+# hors du Cargo.lock du produit, de son SBOM, de cargo-deny et des commandes
+# `--workspace` de la racine (dont la compilation Windows). En contrepartie ce
+# crate a son propre Cargo.lock, que script/fuzz/sync-lock.sh tient aligné sur
+# celui de la racine : le fuzzing porte sur les versions réellement livrées.
+[package]
+name = "lunar-flows-core-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+rust-version = "1.97.1"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+lunar-flows-core = { path = "..", features = ["pcap"] }
+
+[[bin]]
+name = "pcap_reader"
+path = "fuzz_targets/pcap_reader.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "matrix_reader"
+path = "fuzz_targets/matrix_reader.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "winaudit_reader"
+path = "fuzz_targets/winaudit_reader.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
