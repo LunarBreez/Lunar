@@ -1,5 +1,9 @@
 # LUNAR
 
+<p align="center">
+  <img src="crates/lunar/assets/images/logo.svg" alt="Logo de LUNAR" width="128">
+</p>
+
 Relevé de matrices de flux réseau, avec une interface native
 [GPUI](https://crates.io/crates/gpui) 0.2.2. LUNAR couvre six fonctions :
 
