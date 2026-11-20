@@ -150,11 +150,17 @@ DBUS_SESSION_BUS_ADDRESS -u XAUTHORITY`).
   - attestation de provenance GitHub et signature Sigstore (cosign, sans clé)
     de chaque archive et de chaque SBOM, produites par le job qui l'a
     construit ;
+  - vérification de `SHA256SUMS`, des signatures et des attestations avant
+    toute publication ;
   - release créée en brouillon, rendue publique une fois tous les fichiers en
     place (environnement `production`, où une validation manuelle peut être
     exigée).
-- **Lancement manuel de `release.yml`** : il construit et teste sans rien
-  publier ; les archives restent dans les artefacts du run.
+- **Release à blanc** (lancement manuel de `release.yml`) : toute la chaîne
+  tourne sur des fichiers étiquetés `X.Y.Z-dev.<commit>` : compilation, smoke
+  tests, SBOM, attestation, signature, puis vérification de chaque signature
+  et de chaque attestation. Seule la publication est sautée ; le jeu complet
+  reste dans l'artefact `release-files` du run. Les signatures d'essai sont
+  inscrites au journal public Sigstore, liées à la branche et non à un tag.
 - **Actions tierces** : elles sont épinglées par SHA. Dependabot propose leurs
   mises à jour (`.github/dependabot.yml`).
 
