@@ -400,7 +400,9 @@ impl GraphData {
             if protocol.is_some_and(|protocol| !flow_uses_protocol(flow, protocol)) {
                 continue;
             }
-            let packets = entries.iter().map(|(_, stats)| stats.count).sum();
+            let packets = entries
+                .iter()
+                .fold(0u64, |total, (_, stats)| total.saturating_add(stats.count));
             let bytes = entries.iter().fold(0u64, |total, (_, stats)| {
                 total.saturating_add(stats.total_bytes)
             });
