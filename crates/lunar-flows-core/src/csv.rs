@@ -328,6 +328,33 @@ mod tests {
         assert!(!rows.is_empty(), "la fixture contient des lignes");
     }
 
+    /// Une matrice hostile peut annoncer des comptes de paquets dont la somme
+    /// dépasse `u64::MAX` : entre tunnels d'une ligne, entre lignes d'un même
+    /// flux, entre flux d'un même équipement. Les octets saturaient déjà ; les
+    /// paquets débordaient (panic avec les contrôles de débordement, total
+    /// replié en silence sans eux). L'entrée est la graine de régression de la
+    /// cible de fuzzing `matrix_reader`.
+    #[test]
+    fn hostile_packet_counts_saturate_instead_of_overflowing() {
+        let seed = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fuzz/regressions/matrix_reader/packet_count_overflow.csv");
+
+        let matrix = merge_matrix_files(std::slice::from_ref(&seed)).expect("matrice acceptée");
+        let rows = matrix.to_flat_vec();
+        assert_eq!(rows.len(), 2, "deux flux distincts");
+        for row in &rows {
+            assert_eq!(row.count, u64::MAX, "compte saturé, jamais replié");
+        }
+
+        // Les consommateurs de la matrice additionnent les mêmes comptes.
+        let endpoints = matrix.unlabeled_endpoints();
+        assert!(!endpoints.is_empty());
+        for endpoint in &endpoints {
+            assert_eq!(endpoint.packets, u64::MAX);
+        }
+        let _ = crate::graph::GraphData::from_flow_matrix(&matrix);
+    }
+
     #[test]
     fn merge_two_identical_files_doubles_counters_and_tracks_origins() {
         let dir = std::env::temp_dir().join("lunar_core_merge_test");

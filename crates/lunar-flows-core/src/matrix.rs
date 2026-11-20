@@ -139,7 +139,11 @@ pub fn parse_encap_list(
         }
     }
 
-    let in_tunnels: u64 = counts.iter().map(|(_, n)| *n).sum();
+    // Somme saturante : les comptes viennent d'un fichier, leur total peut
+    // dépasser `u64::MAX`.
+    let in_tunnels = counts
+        .iter()
+        .fold(0u64, |total, (_, n)| total.saturating_add(*n));
     if counts.is_empty() || in_tunnels < count {
         counts.push((None, count.saturating_sub(in_tunnels)));
     }
@@ -279,7 +283,7 @@ impl FlowMatrix {
         // clé canonique ignore les seules métadonnées du point d'observation.
         if let Some(entries) = self.matrix.get_mut(flow.as_ref()) {
             if let Some((_, stats)) = entries.iter_mut().find(|(id, _)| *id == pkt.encap_id) {
-                stats.count += 1;
+                stats.count = stats.count.saturating_add(1);
                 stats.total_bytes = stats.total_bytes.saturating_add(pkt.len as u64);
                 // Max et non dernière valeur : des PCAP importés hors ordre
                 // chronologique ne font pas régresser la date.
@@ -365,7 +369,7 @@ impl FlowMatrix {
         }
         let entries = self.matrix.entry(flow).or_default();
         if let Some((_, existing)) = entries.iter_mut().find(|(id, _)| *id == encap_id) {
-            existing.count += stats.count;
+            existing.count = existing.count.saturating_add(stats.count);
             existing.total_bytes = existing.total_bytes.saturating_add(stats.total_bytes);
             if stats.last_seen > existing.last_seen {
                 existing.last_seen = stats.last_seen;
@@ -462,7 +466,9 @@ impl FlowMatrix {
                 // Une seule ligne par flux : les compteurs par tunnel sont
                 // refusionnés, la ventilation reste lisible dans `encap_id`.
                 let stats = FlowStats {
-                    count: entries.iter().map(|(_, s)| s.count).sum(),
+                    count: entries
+                        .iter()
+                        .fold(0u64, |acc, (_, s)| acc.saturating_add(s.count)),
                     total_bytes: entries
                         .iter()
                         .fold(0u64, |acc, (_, s)| acc.saturating_add(s.total_bytes)),
@@ -711,7 +717,10 @@ impl FlowMatrix {
         let mut totals: HashMap<(String, String), (u64, u64)> = HashMap::new();
         for (flow, entries) in &self.matrix {
             let (packets, bytes) = entries.iter().fold((0u64, 0u64), |(p, b), (_, stats)| {
-                (p + stats.count, b.saturating_add(stats.total_bytes))
+                (
+                    p.saturating_add(stats.count),
+                    b.saturating_add(stats.total_bytes),
+                )
             });
             let link = LinkView::of(&flow.data_link);
             let ips = flow.internet.as_ref().map_or((None, None), |internet| {
@@ -725,7 +734,7 @@ impl FlowMatrix {
                     continue;
                 }
                 let entry = totals.entry((mac.clone(), ip)).or_default();
-                entry.0 += packets;
+                entry.0 = entry.0.saturating_add(packets);
                 entry.1 = entry.1.saturating_add(bytes);
             }
         }
@@ -1354,6 +1363,29 @@ mod tests {
     };
     use packet_parser::{LinkType, LinuxArphrdType, LinuxCookedPacketType};
     use std::time::UNIX_EPOCH;
+
+    /// Un paquet capturé après l'import d'une matrice dont le compte est déjà
+    /// à `u64::MAX` ne fait pas déborder le compteur du flux.
+    #[test]
+    fn packet_after_saturated_import_does_not_overflow_the_count() {
+        let pkt = sample_packet(100);
+        let mut matrix = FlowMatrix::new();
+        matrix.merge_row(
+            pkt.flow.clone(),
+            None,
+            FlowStats {
+                count: u64::MAX,
+                total_bytes: 0,
+                last_seen: UNIX_EPOCH,
+            },
+        );
+
+        matrix.update_flow(&pkt);
+
+        let rows = matrix.to_flat_vec();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].count, u64::MAX);
+    }
 
     /// Deux appels sur le même état produisent exactement les mêmes lignes
     /// dans le même ordre : l'export est déterministe.

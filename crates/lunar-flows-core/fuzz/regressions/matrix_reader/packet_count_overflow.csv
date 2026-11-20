@@ -1,0 +1,4 @@
+mac_source,mac_destination,vlan_id,protocol_data_link,ip_source,ip_source_type,label_source,ip_destination,ip_destination_type,label_destination,port_source,port_destination,protocol_transport,application_protocol,count,total_bytes,last_seen,encap_id,origin
+e0:d5:5e:28:9b:d4,44:15:24:20:a5:64,,IPv4,192.168.1.15,Privée,,192.168.1.254,Privée,,58142,443,TCP,TLS,5,516,2026-07-03 15:09:40.123456 UTC,8568e7dc25cf8676:18446744073709551615|0123456789abcdef:1,
+e0:d5:5e:28:9b:d4,44:15:24:20:a5:64,,IPv4,192.168.1.15,Privée,,192.168.1.254,Privée,,58142,443,TCP,TLS,18446744073709551615,516,2026-07-03 15:09:40.123456 UTC,8568e7dc25cf8676,
+e0:d5:5e:28:9b:d4,44:15:24:20:a5:64,,IPv4,192.168.1.15,Privée,,192.168.1.254,Privée,,58143,443,TCP,TLS,18446744073709551615,516,2026-07-03 15:09:40.123456 UTC,,
