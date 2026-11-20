@@ -76,3 +76,23 @@ jobs:
 
       - name: Démarrage sans Npcap
         run: target/debug/lunar.exe --version
+
+  # Avis de sécurité RustSec, licences, doublons et sources des dépendances,
+  # selon deny.toml.
+  deny:
+    name: Dépendances (cargo-deny)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Toolchain Rust
+        run: script/ci/install-toolchain.sh
+
+      - name: cargo-deny
+        run: script/ci/install-cargo-deny.sh
+
+      - name: Vérification des dépendances
+        run: cargo deny --locked check

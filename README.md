@@ -137,15 +137,19 @@ DBUS_SESSION_BUS_ADDRESS -u XAUTHORITY`).
 - **`.github/workflows/ci.yml`**, à chaque push sur `main` et sur chaque pull
   request :
   - Linux (Ubuntu 22.04) : formatage, clippy `-D warnings` et tests ;
-  - Windows : clippy, compilation et `--version` sans Npcap.
+  - Windows : clippy, compilation et `--version` sans Npcap ;
+  - dépendances : `cargo deny check` (avis RustSec, licences, sources), selon
+    `deny.toml`.
 - **`.github/workflows/release.yml`**, au push d'un tag `vX.Y.Z` égal à la
   version du workspace :
   - binaires release Linux et Windows, avec un smoke test pour chacun : sur
     Linux, première image sur Xvfb avec lavapipe ; sur Windows, `--version` ;
   - archives `lunar-X.Y.Z-x86_64-linux-gnu.tar.gz` et
     `lunar-X.Y.Z-x86_64-windows.zip`, `SHA256SUMS` ;
+  - SBOM CycloneDX 1.5 de chaque cible (`lunar-X.Y.Z-<cible>.cdx.json`) ;
   - attestation de provenance GitHub et signature Sigstore (cosign, sans clé)
-    de chaque archive, produites par le job qui l'a construite ;
+    de chaque archive et de chaque SBOM, produites par le job qui l'a
+    construit ;
   - release créée en brouillon, rendue publique une fois tous les fichiers en
     place (environnement `production`, où une validation manuelle peut être
     exigée).
@@ -175,7 +179,6 @@ cosign verify-blob lunar-0.1.0-x86_64-linux-gnu.tar.gz \
 
 - paquets `.deb` et NSIS ;
 - signature de code (Authenticode, signature hors ligne) ;
-- SBOM ;
 - build reproductible ;
 - vendoring hors ligne.
 

@@ -1,0 +1,49 @@
+# Politique cargo-deny : avis de sécurité, licences, doublons et sources des
+# dépendances. https://embarkstudios.github.io/cargo-deny/
+# Lancé par .github/workflows/ci.yml ; en local : `cargo deny check`.
+
+# Seules les cibles livrées comptent.
+[graph]
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "x86_64-pc-windows-msvc",
+]
+
+[advisories]
+unmaintained = "workspace"
+yanked = "warn"
+# Avis « non maintenu », sans vulnérabilité connue : à réévaluer à chaque
+# mise à jour des dépendances.
+ignore = [
+  { id = "RUSTSEC-2026-0543", reason = "chrono non maintenu : dépendance directe des trois crates, à remplacer par jiff ou time dans un chantier dédié." },
+  { id = "RUSTSEC-2026-0192", reason = "ttf-parser non maintenu : tiré par gpui 0.2.2 (cosmic-text, usvg) et utilisé pour l'export PNG du graphe ; pas de remplacement sans changer gpui." },
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Les crates du workspace (publish = false) se référencent par chemin.
+allow-wildcard-paths = true
+
+[licenses]
+confidence-threshold = 0.8
+allow = [
+  "0BSD",
+  "AGPL-3.0-only",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "ISC",
+  "MIT",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

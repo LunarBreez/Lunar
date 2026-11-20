@@ -1,11 +1,11 @@
 # Publication d'une version : binaires Linux et Windows, smoke tests,
-# attestation de provenance, signature Sigstore, SHA256SUMS et release GitHub
+# SBOM, attestation de provenance, signature Sigstore, SHA256SUMS et release GitHub
 # (brouillon, rendu public une fois tous les fichiers en place).
 #
 # - Push d'un tag vX.Y.Z (égal à la version du workspace) : construit, teste
 #   et publie la release.
 # - Lancement manuel (workflow_dispatch) : construit et teste seulement ;
-#   les archives restent en artefacts du run, rien n'est publié.
+#   les archives et les SBOM restent en artefacts du run, rien n'est publié.
 name: Release
 
 on:
@@ -192,13 +192,65 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  # Inventaire des dépendances (SBOM CycloneDX) de chaque cible, attesté et
+  # signé comme les archives.
+  sbom:
+    name: SBOM
+    needs: version
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      LABEL: ${{ needs.version.outputs.label }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Toolchain Rust
+        run: script/ci/install-toolchain.sh
+
+      - name: cargo-cyclonedx
+        run: script/ci/install-cargo-cyclonedx.sh
+
+      - name: SBOM CycloneDX
+        run: script/ci/generate-sbom.sh "$LABEL" dist
+
+      - name: Attestation de provenance
+        if: github.ref_type == 'tag'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*.cdx.json
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        if: github.ref_type == 'tag'
+        with:
+          cosign-release: ${{ env.COSIGN_VERSION }}
+
+      - name: Signature Sigstore
+        if: github.ref_type == 'tag'
+        run: |
+          for sbom in dist/*.cdx.json; do
+            cosign sign-blob --yes --bundle "$sbom.sigstore.json" "$sbom"
+          done
+          ls -l dist
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lunar-sbom
+          path: dist/*
+          if-no-files-found: error
+
   # Seul job qui écrit dans la release, avec les octets exacts que les jobs de
   # build ont testés, attestés et signés. Il ne signe rien : pas d'id-token.
   # La release reste un brouillon invisible jusqu'au job `finalize`.
   publish:
     name: Brouillon de release
     if: github.ref_type == 'tag'
-    needs: [version, linux, windows]
+    needs: [version, linux, windows, sbom]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -216,7 +268,7 @@ jobs:
       - name: SHA256SUMS
         working-directory: dist
         run: |
-          sha256sum -- *.tar.gz *.zip >SHA256SUMS
+          sha256sum -- *.tar.gz *.zip *.cdx.json >SHA256SUMS
           cat SHA256SUMS
 
       - name: Brouillon de release GitHub
@@ -228,13 +280,14 @@ jobs:
             Pour la capture en direct : \`sudo setcap cap_net_raw=eip ./lunar\`.
           - **Windows x86_64** (\`*-x86_64-windows.zip\`) : la capture exige [Npcap](https://npcap.com/).
             Sans Npcap, LUNAR démarre et importe des PCAP.
+          - **SBOM** (\`*.cdx.json\`) : inventaire CycloneDX 1.5 des dépendances de chaque cible.
 
           Vérification :
 
           \`\`\`bash
           sha256sum -c SHA256SUMS
-          gh attestation verify <archive> --repo $GH_REPO
-          cosign verify-blob <archive> --bundle <archive>.sigstore.json \\
+          gh attestation verify <fichier> --repo $GH_REPO
+          cosign verify-blob <fichier> --bundle <fichier>.sigstore.json \\
             --certificate-identity "https://github.com/$GH_REPO/.github/workflows/release.yml@refs/tags/$TAG" \\
             --certificate-oidc-issuer https://token.actions.githubusercontent.com
           \`\`\`
