@@ -1,5 +1,6 @@
 # Publication d'une version : binaires Linux et Windows, smoke tests,
-# SHA256SUMS, attestation de provenance et release GitHub.
+# attestation de provenance, signature Sigstore, SHA256SUMS et release GitHub
+# (brouillon, rendu public une fois tous les fichiers en place).
 #
 # - Push d'un tag vX.Y.Z (égal à la version du workspace) : construit, teste
 #   et publie la release.
@@ -22,6 +23,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
+  COSIGN_VERSION: v3.0.6
 
 jobs:
   version:
@@ -60,6 +62,12 @@ jobs:
     needs: version
     runs-on: ubuntu-22.04
     timeout-minutes: 60
+    # L'attestation et la signature sont produites par le job qui a construit
+    # les octets ; id-token et attestations ne servent que sur un tag.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     env:
       LABEL: ${{ needs.version.outputs.label }}
     steps:
@@ -88,6 +96,25 @@ jobs:
           rm -r "dist/$name"
           ls -l dist
 
+      - name: Attestation de provenance
+        if: github.ref_type == 'tag'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*.tar.gz
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        if: github.ref_type == 'tag'
+        with:
+          cosign-release: ${{ env.COSIGN_VERSION }}
+
+      - name: Signature Sigstore
+        if: github.ref_type == 'tag'
+        run: |
+          for archive in dist/*.tar.gz; do
+            cosign sign-blob --yes --bundle "$archive.sigstore.json" "$archive"
+          done
+          ls -l dist
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lunar-linux
@@ -99,6 +126,10 @@ jobs:
     needs: version
     runs-on: windows-2022
     timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     defaults:
       run:
         shell: bash
@@ -136,21 +167,41 @@ jobs:
           rm -r "dist/$name"
           ls -l dist
 
+      - name: Attestation de provenance
+        if: github.ref_type == 'tag'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*.zip
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        if: github.ref_type == 'tag'
+        with:
+          cosign-release: ${{ env.COSIGN_VERSION }}
+
+      - name: Signature Sigstore
+        if: github.ref_type == 'tag'
+        run: |
+          for archive in dist/*.zip; do
+            cosign sign-blob --yes --bundle "$archive.sigstore.json" "$archive"
+          done
+          ls -l dist
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lunar-windows
           path: dist/*
           if-no-files-found: error
 
+  # Seul job qui écrit dans la release, avec les octets exacts que les jobs de
+  # build ont testés, attestés et signés. Il ne signe rien : pas d'id-token.
+  # La release reste un brouillon invisible jusqu'au job `finalize`.
   publish:
-    name: Publication
+    name: Brouillon de release
     if: github.ref_type == 'tag'
     needs: [version, linux, windows]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
-      id-token: write
-      attestations: write
     env:
       VERSION: ${{ needs.version.outputs.version }}
       TAG: ${{ github.ref_name }}
@@ -168,13 +219,7 @@ jobs:
           sha256sum -- *.tar.gz *.zip >SHA256SUMS
           cat SHA256SUMS
 
-      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: |
-            dist/*.tar.gz
-            dist/*.zip
-
-      - name: Release GitHub
+      - name: Brouillon de release GitHub
         run: |
           cat >notes.md <<EOF
           LUNAR $VERSION : relevé de matrices de flux réseau, interface native gpui.
@@ -184,7 +229,34 @@ jobs:
           - **Windows x86_64** (\`*-x86_64-windows.zip\`) : la capture exige [Npcap](https://npcap.com/).
             Sans Npcap, LUNAR démarre et importe des PCAP.
 
-          Vérification : \`sha256sum -c SHA256SUMS\`, puis
-          \`gh attestation verify <archive> --repo $GH_REPO\`.
+          Vérification :
+
+          \`\`\`bash
+          sha256sum -c SHA256SUMS
+          gh attestation verify <archive> --repo $GH_REPO
+          cosign verify-blob <archive> --bundle <archive>.sigstore.json \\
+            --certificate-identity "https://github.com/$GH_REPO/.github/workflows/release.yml@refs/tags/$TAG" \\
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          \`\`\`
           EOF
-          gh release create "$TAG" dist/* --verify-tag --title "LUNAR $VERSION" --notes-file notes.md
+          gh release create "$TAG" dist/* --draft --verify-tag --title "LUNAR $VERSION" --notes-file notes.md
+
+  # Seul passage brouillon -> public : un échec en amont ne laisse jamais de
+  # release publique partielle. L'environnement `production` permet d'exiger
+  # une validation manuelle (Settings > Environments > Required reviewers).
+  finalize:
+    name: Publication
+    needs: publish
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    environment:
+      name: production
+      url: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}
+    env:
+      TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Brouillon -> release publique
+        run: gh release edit "$TAG" --draft=false --latest
