@@ -13,6 +13,14 @@ seconds="${FUZZ_SECONDS:-90}"
 
 # Depuis le répertoire du crate, rustup applique sa toolchain nightly.
 cd "$root/crates/lunar-flows-core/fuzz"
+
+# Cible de l'hôte, donnée explicitement. Par défaut cargo-fuzz vise la cible
+# pour laquelle il a lui-même été compilé ; son binaire officiel pour Linux
+# l'est pour musl, cible absente de la toolchain et refusée par les
+# sanitizers (libc statique).
+host="$(rustc -vV | sed -n 's/^host: //p')"
+[[ -n "$host" ]] || { echo "cible de l'hôte introuvable (rustc -vV)" >&2; exit 1; }
+
 targets=("$@")
 if ((${#targets[@]} == 0)); then
   # Affectation simple : un échec de `cargo fuzz list` arrête le script, au
@@ -27,7 +35,7 @@ fi
 
 for target in "${targets[@]}"; do
   echo "=== $target : $seconds s ==="
-  cargo fuzz run "$target" -- \
+  cargo fuzz run --target "$host" "$target" -- \
     -max_total_time="$seconds" -rss_limit_mb=4096 -timeout=10
 done
 echo "Fuzzing borné : ${#targets[@]} cibles, aucun crash."
