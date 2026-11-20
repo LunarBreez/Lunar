@@ -1,0 +1,8 @@
+# generator=script/pcap/generate-common-flows.py
+# tshark=TShark (Wireshark) 4.6.6.
+# capture_sha256=746619df546905feb6f1217ee40750004a1ca1d85fe7be1740bacdf52dca6850
+# projection=outer
+# included_packets=8
+# included_bytes=1268
+mac_source	mac_destination	vlan_id	ether_type	ip_source	ip_destination	ip_protocol	port_source	port_destination	count	total_bytes	last_seen_us
+00:a0:f4:08:2f:77	01:a0:f4:08:2f:77		35000						8	1268	1216135271583138

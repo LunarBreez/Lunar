@@ -1,0 +1,187 @@
+{
+  "timeZone": "Etc/GMT+5",
+  "offsetSeconds": -18000,
+  "generatedAt": "2026-10-14T03:59:59.999Z",
+  "graph": {
+    "nodes": {
+      "1.1.1.1": {
+        "id": "aa00000000000004",
+        "name": "1.1.1.1",
+        "color": "#2196F3",
+        "mac": "",
+        "macs": [],
+        "ip": "1.1.1.1",
+        "vlan_id": null,
+        "duplicate_ip": false,
+        "gateway_mac": false,
+        "label": "Elan"
+      },
+      "172.16.0.1": {
+        "id": "aa00000000000001",
+        "name": "172.16.0.1",
+        "color": "#8BC34A",
+        "mac": "00:1b:21:00:00:01",
+        "macs": [
+          "00:1b:21:00:00:01"
+        ],
+        "ip": "172.16.0.1",
+        "vlan_id": 100,
+        "duplicate_ip": false,
+        "gateway_mac": false,
+        "label": "Doublon"
+      },
+      "172.16.0.2": {
+        "id": "aa00000000000002",
+        "name": "172.16.0.2",
+        "color": "#8BC34A",
+        "mac": "00:1b:21:00:00:02",
+        "macs": [
+          "00:1b:21:00:00:02"
+        ],
+        "ip": "172.16.0.2",
+        "vlan_id": 100,
+        "duplicate_ip": false,
+        "gateway_mac": false,
+        "label": "Doublon"
+      },
+      "172.16.0.3": {
+        "id": "aa00000000000003",
+        "name": "172.16.0.3",
+        "color": "#8BC34A",
+        "mac": "dc:a6:32:00:00:03",
+        "macs": [
+          "dc:a6:32:00:00:03"
+        ],
+        "ip": "172.16.0.3",
+        "vlan_id": 100,
+        "duplicate_ip": false,
+        "gateway_mac": false,
+        "label": "élan"
+      },
+      "fe80::1": {
+        "id": "aa00000000000005",
+        "name": "fe80::1",
+        "color": "#FF5722",
+        "mac": "33:33:00:00:00:01",
+        "macs": [],
+        "ip": "fe80::1",
+        "vlan_id": null,
+        "duplicate_ip": false,
+        "gateway_mac": false,
+        "label": null
+      }
+    },
+    "edges": {
+      "aa00000000000001:aa00000000000002:HTTP": {
+        "id": "bbg3000000000000",
+        "source": "aa00000000000001",
+        "target": "aa00000000000002",
+        "label": "HTTP",
+        "sourcePort": null,
+        "destinationPort": null,
+        "ports": [
+          80,
+          8080
+        ],
+        "hasDynamicPorts": false,
+        "bidir": true,
+        "count": 10,
+        "totalBytes": 1500,
+        "encapIds": []
+      },
+      "aa00000000000001:aa00000000000004:CAPWAP": {
+        "id": "bbg1000000000000",
+        "source": "aa00000000000001",
+        "target": "aa00000000000004",
+        "label": "CAPWAP",
+        "sourcePort": null,
+        "destinationPort": null,
+        "ports": [
+          5246
+        ],
+        "hasDynamicPorts": false,
+        "bidir": true,
+        "count": 1000000,
+        "totalBytes": 5497558138880,
+        "encapIds": [
+          "c0ffee0000000001"
+        ]
+      },
+      "aa00000000000002:aa00000000000003:GOOSE": {
+        "id": "bbg4000000000000",
+        "source": "aa00000000000002",
+        "target": "aa00000000000003",
+        "label": "GOOSE",
+        "sourcePort": null,
+        "destinationPort": null,
+        "ports": [],
+        "hasDynamicPorts": false,
+        "bidir": false,
+        "count": 10,
+        "totalBytes": 1500,
+        "encapIds": []
+      },
+      "aa00000000000002:aa00000000000004:QUIC": {
+        "id": "bbg2000000000000",
+        "source": "aa00000000000002",
+        "target": "aa00000000000004",
+        "label": "QUIC",
+        "sourcePort": null,
+        "destinationPort": null,
+        "ports": [
+          443
+        ],
+        "hasDynamicPorts": false,
+        "bidir": true,
+        "count": 2000000,
+        "totalBytes": 5497558138880,
+        "encapIds": [
+          "c0ffee0000000001"
+        ]
+      },
+      "aa00000000000003:aa00000000000004:WireGuard": {
+        "id": "bbg6000000000000",
+        "source": "aa00000000000003",
+        "target": "aa00000000000004",
+        "label": "WireGuard",
+        "sourcePort": null,
+        "destinationPort": null,
+        "ports": [
+          51820
+        ],
+        "hasDynamicPorts": false,
+        "bidir": true,
+        "count": 123456,
+        "totalBytes": 3758096384,
+        "encapIds": []
+      },
+      "aa00000000000003:aa00000000000005:ICMPv6": {
+        "id": "bbg5000000000000",
+        "source": "aa00000000000003",
+        "target": "aa00000000000005",
+        "label": "ICMPv6",
+        "sourcePort": null,
+        "destinationPort": null,
+        "ports": [],
+        "hasDynamicPorts": false,
+        "bidir": false,
+        "count": 1,
+        "totalBytes": 64,
+        "encapIds": []
+      }
+    }
+  },
+  "csvFileName": "releve.csv",
+  "csvSha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "csvBytes": 987,
+  "linkType": "ETHERNET",
+  "site": "Base navale",
+  "sensor": "Poste relevé n°2",
+  "interface": "enp0s31f6",
+  "appVersion": "0.1.0",
+  "period": {
+    "state": "known",
+    "first": "2026-10-01T23:59:59.999999Z",
+    "last": "2026-10-14T04:00:00.000001Z"
+  }
+}

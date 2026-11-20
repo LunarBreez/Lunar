@@ -1,0 +1,3843 @@
+{
+ "full": {
+  "stats": {
+   "endpoints": 5,
+   "flows": 6,
+   "packets": 3123477,
+   "bytes": 10998874377208,
+   "protocols": 6,
+   "duplicateIps": 0
+  },
+  "protocolBreakdown": [
+   {
+    "protocol": "CAPWAP",
+    "flows": 1
+   },
+   {
+    "protocol": "GOOSE",
+    "flows": 1
+   },
+   {
+    "protocol": "HTTP",
+    "flows": 1
+   },
+   {
+    "protocol": "ICMPv6",
+    "flows": 1
+   },
+   {
+    "protocol": "QUIC",
+    "flows": 1
+   },
+   {
+    "protocol": "WireGuard",
+    "flows": 1
+   }
+  ],
+  "flowRows": [
+   {
+    "id": "aa00000000000001:aa00000000000002:HTTP",
+    "sourceId": "aa00000000000001",
+    "targetId": "aa00000000000002",
+    "source": "Doublon",
+    "target": "Doublon",
+    "protocol": "HTTP",
+    "ports": "80, 8080",
+    "bidir": true,
+    "packets": 10,
+    "bytes": 1500
+   },
+   {
+    "id": "aa00000000000001:aa00000000000004:CAPWAP",
+    "sourceId": "aa00000000000001",
+    "targetId": "aa00000000000004",
+    "source": "Doublon",
+    "target": "Elan",
+    "protocol": "CAPWAP",
+    "ports": "5246",
+    "bidir": true,
+    "packets": 1000000,
+    "bytes": 5497558138880
+   },
+   {
+    "id": "aa00000000000002:aa00000000000003:GOOSE",
+    "sourceId": "aa00000000000002",
+    "targetId": "aa00000000000003",
+    "source": "Doublon",
+    "target": "élan",
+    "protocol": "GOOSE",
+    "ports": "—",
+    "bidir": false,
+    "packets": 10,
+    "bytes": 1500
+   },
+   {
+    "id": "aa00000000000002:aa00000000000004:QUIC",
+    "sourceId": "aa00000000000002",
+    "targetId": "aa00000000000004",
+    "source": "Doublon",
+    "target": "Elan",
+    "protocol": "QUIC",
+    "ports": "443",
+    "bidir": true,
+    "packets": 2000000,
+    "bytes": 5497558138880
+   },
+   {
+    "id": "aa00000000000003:aa00000000000004:WireGuard",
+    "sourceId": "aa00000000000003",
+    "targetId": "aa00000000000004",
+    "source": "élan",
+    "target": "Elan",
+    "protocol": "WireGuard",
+    "ports": "51820",
+    "bidir": true,
+    "packets": 123456,
+    "bytes": 3758096384
+   },
+   {
+    "id": "aa00000000000003:aa00000000000005:ICMPv6",
+    "sourceId": "aa00000000000003",
+    "targetId": "aa00000000000005",
+    "source": "élan",
+    "target": "fe80::1",
+    "protocol": "ICMPv6",
+    "ports": "—",
+    "bidir": false,
+    "packets": 1,
+    "bytes": 64
+   }
+  ],
+  "endpointRows": [
+   {
+    "id": "aa00000000000004",
+    "name": "Elan",
+    "ip": "1.1.1.1",
+    "mac": "",
+    "macDisplay": "",
+    "macs": [],
+    "vlan": null,
+    "label": "Elan",
+    "duplicateIp": false,
+    "degree": 3,
+    "flowsOut": 3,
+    "flowsIn": 3,
+    "packets": 3123456,
+    "bytes": 10998874374144
+   },
+   {
+    "id": "aa00000000000001",
+    "name": "Doublon",
+    "ip": "172.16.0.1",
+    "mac": "00:1b:21:00:00:01",
+    "macDisplay": "00:1b:21:00:00:01",
+    "macs": [
+     "00:1b:21:00:00:01"
+    ],
+    "vlan": 100,
+    "label": "Doublon",
+    "duplicateIp": false,
+    "degree": 2,
+    "flowsOut": 2,
+    "flowsIn": 2,
+    "packets": 1000010,
+    "bytes": 5497558140380
+   },
+   {
+    "id": "aa00000000000002",
+    "name": "Doublon",
+    "ip": "172.16.0.2",
+    "mac": "00:1b:21:00:00:02",
+    "macDisplay": "00:1b:21:00:00:02",
+    "macs": [
+     "00:1b:21:00:00:02"
+    ],
+    "vlan": 100,
+    "label": "Doublon",
+    "duplicateIp": false,
+    "degree": 3,
+    "flowsOut": 3,
+    "flowsIn": 2,
+    "packets": 2000020,
+    "bytes": 5497558141880
+   },
+   {
+    "id": "aa00000000000003",
+    "name": "élan",
+    "ip": "172.16.0.3",
+    "mac": "dc:a6:32:00:00:03",
+    "macDisplay": "dc:a6:32:00:00:03",
+    "macs": [
+     "dc:a6:32:00:00:03"
+    ],
+    "vlan": 100,
+    "label": "élan",
+    "duplicateIp": false,
+    "degree": 3,
+    "flowsOut": 2,
+    "flowsIn": 2,
+    "packets": 123467,
+    "bytes": 3758097948
+   },
+   {
+    "id": "aa00000000000005",
+    "name": "fe80::1",
+    "ip": "fe80::1",
+    "mac": "33:33:00:00:00:01",
+    "macDisplay": "",
+    "macs": [],
+    "vlan": null,
+    "label": "",
+    "duplicateIp": false,
+    "degree": 1,
+    "flowsOut": 0,
+    "flowsIn": 1,
+    "packets": 1,
+    "bytes": 64
+   }
+  ],
+  "portRows": [
+   {
+    "port": 80,
+    "service": "HTTP",
+    "flows": 1,
+    "packets": 10,
+    "bytes": 1500
+   },
+   {
+    "port": 443,
+    "service": "HTTPS (TLS)",
+    "flows": 1,
+    "packets": 2000000,
+    "bytes": 5497558138880
+   },
+   {
+    "port": 5246,
+    "service": "",
+    "flows": 1,
+    "packets": 1000000,
+    "bytes": 5497558138880
+   },
+   {
+    "port": 8080,
+    "service": "HTTP (proxy/alt)",
+    "flows": 1,
+    "packets": 10,
+    "bytes": 1500
+   },
+   {
+    "port": 51820,
+    "service": "WireGuard",
+    "flows": 1,
+    "packets": 123456,
+    "bytes": 3758096384
+   }
+  ],
+  "deductionRows": [
+   {
+    "kind": "Port",
+    "observed": "443",
+    "deduction": "HTTPS (TLS)",
+    "count": 1
+   },
+   {
+    "kind": "Port",
+    "observed": "51820",
+    "deduction": "WireGuard",
+    "count": 1
+   },
+   {
+    "kind": "Port",
+    "observed": "80",
+    "deduction": "HTTP",
+    "count": 1
+   },
+   {
+    "kind": "Port",
+    "observed": "8080",
+    "deduction": "HTTP (proxy/alt)",
+    "count": 1
+   },
+   {
+    "kind": "Fabricant (OUI)",
+    "observed": "00:1B:21",
+    "deduction": "Intel",
+    "count": 2
+   },
+   {
+    "kind": "Fabricant (OUI)",
+    "observed": "DC:A6:32",
+    "deduction": "Raspberry Pi",
+    "count": 1
+   },
+   {
+    "kind": "Adresse connue",
+    "observed": "1.1.1.1",
+    "deduction": "Cloudflare DNS",
+    "count": 1
+   },
+   {
+    "kind": "Adresse connue",
+    "observed": "33:33:00:00:00:01",
+    "deduction": "Multicast IPv6",
+    "count": 1
+   },
+   {
+    "kind": "Adresse connue",
+    "observed": "fe80::1",
+    "deduction": "Lien-local (IPv6)",
+    "count": 1
+   }
+  ],
+  "summary": {
+   "protocols": [
+    {
+     "protocol": "CAPWAP",
+     "flows": 1,
+     "packets": 1000000,
+     "bytes": 5497558138880
+    },
+    {
+     "protocol": "QUIC",
+     "flows": 1,
+     "packets": 2000000,
+     "bytes": 5497558138880
+    },
+    {
+     "protocol": "WireGuard",
+     "flows": 1,
+     "packets": 123456,
+     "bytes": 3758096384
+    },
+    {
+     "protocol": "GOOSE",
+     "flows": 1,
+     "packets": 10,
+     "bytes": 1500
+    },
+    {
+     "protocol": "HTTP",
+     "flows": 1,
+     "packets": 10,
+     "bytes": 1500
+    },
+    {
+     "protocol": "ICMPv6",
+     "flows": 1,
+     "packets": 1,
+     "bytes": 64
+    }
+   ],
+   "topEndpoints": [
+    {
+     "id": "aa00000000000004",
+     "name": "Elan",
+     "ip": "1.1.1.1",
+     "mac": "",
+     "macDisplay": "",
+     "macs": [],
+     "vlan": null,
+     "label": "Elan",
+     "duplicateIp": false,
+     "degree": 3,
+     "flowsOut": 3,
+     "flowsIn": 3,
+     "packets": 3123456,
+     "bytes": 10998874374144
+    },
+    {
+     "id": "aa00000000000002",
+     "name": "Doublon",
+     "ip": "172.16.0.2",
+     "mac": "00:1b:21:00:00:02",
+     "macDisplay": "00:1b:21:00:00:02",
+     "macs": [
+      "00:1b:21:00:00:02"
+     ],
+     "vlan": 100,
+     "label": "Doublon",
+     "duplicateIp": false,
+     "degree": 3,
+     "flowsOut": 3,
+     "flowsIn": 2,
+     "packets": 2000020,
+     "bytes": 5497558141880
+    },
+    {
+     "id": "aa00000000000001",
+     "name": "Doublon",
+     "ip": "172.16.0.1",
+     "mac": "00:1b:21:00:00:01",
+     "macDisplay": "00:1b:21:00:00:01",
+     "macs": [
+      "00:1b:21:00:00:01"
+     ],
+     "vlan": 100,
+     "label": "Doublon",
+     "duplicateIp": false,
+     "degree": 2,
+     "flowsOut": 2,
+     "flowsIn": 2,
+     "packets": 1000010,
+     "bytes": 5497558140380
+    },
+    {
+     "id": "aa00000000000003",
+     "name": "élan",
+     "ip": "172.16.0.3",
+     "mac": "dc:a6:32:00:00:03",
+     "macDisplay": "dc:a6:32:00:00:03",
+     "macs": [
+      "dc:a6:32:00:00:03"
+     ],
+     "vlan": 100,
+     "label": "élan",
+     "duplicateIp": false,
+     "degree": 3,
+     "flowsOut": 2,
+     "flowsIn": 2,
+     "packets": 123467,
+     "bytes": 3758097948
+    },
+    {
+     "id": "aa00000000000005",
+     "name": "fe80::1",
+     "ip": "fe80::1",
+     "mac": "33:33:00:00:00:01",
+     "macDisplay": "",
+     "macs": [],
+     "vlan": null,
+     "label": "",
+     "duplicateIp": false,
+     "degree": 1,
+     "flowsOut": 0,
+     "flowsIn": 1,
+     "packets": 1,
+     "bytes": 64
+    }
+   ],
+   "topFlows": [
+    {
+     "id": "aa00000000000001:aa00000000000004:CAPWAP",
+     "sourceId": "aa00000000000001",
+     "targetId": "aa00000000000004",
+     "source": "Doublon",
+     "target": "Elan",
+     "protocol": "CAPWAP",
+     "ports": "5246",
+     "bidir": true,
+     "packets": 1000000,
+     "bytes": 5497558138880
+    },
+    {
+     "id": "aa00000000000002:aa00000000000004:QUIC",
+     "sourceId": "aa00000000000002",
+     "targetId": "aa00000000000004",
+     "source": "Doublon",
+     "target": "Elan",
+     "protocol": "QUIC",
+     "ports": "443",
+     "bidir": true,
+     "packets": 2000000,
+     "bytes": 5497558138880
+    },
+    {
+     "id": "aa00000000000003:aa00000000000004:WireGuard",
+     "sourceId": "aa00000000000003",
+     "targetId": "aa00000000000004",
+     "source": "élan",
+     "target": "Elan",
+     "protocol": "WireGuard",
+     "ports": "51820",
+     "bidir": true,
+     "packets": 123456,
+     "bytes": 3758096384
+    },
+    {
+     "id": "aa00000000000001:aa00000000000002:HTTP",
+     "sourceId": "aa00000000000001",
+     "targetId": "aa00000000000002",
+     "source": "Doublon",
+     "target": "Doublon",
+     "protocol": "HTTP",
+     "ports": "80, 8080",
+     "bidir": true,
+     "packets": 10,
+     "bytes": 1500
+    },
+    {
+     "id": "aa00000000000002:aa00000000000003:GOOSE",
+     "sourceId": "aa00000000000002",
+     "targetId": "aa00000000000003",
+     "source": "Doublon",
+     "target": "élan",
+     "protocol": "GOOSE",
+     "ports": "—",
+     "bidir": false,
+     "packets": 10,
+     "bytes": 1500
+    }
+   ],
+   "unlabeled": 1,
+   "scope": {
+    "internal": {
+     "flows": 3,
+     "packets": 21,
+     "bytes": 3064
+    },
+    "internet": {
+     "flows": 3,
+     "packets": 3123456,
+     "bytes": 10998874374144
+    }
+   },
+   "confidentiality": [
+    {
+     "kind": "Chiffré",
+     "flows": 2,
+     "packets": 2123456,
+     "bytes": 5501316235264
+    },
+    {
+     "kind": "En clair",
+     "flows": 3,
+     "packets": 21,
+     "bytes": 3064
+    },
+    {
+     "kind": "Indéterminé",
+     "flows": 1,
+     "packets": 1000000,
+     "bytes": 5497558138880
+    }
+   ],
+   "usages": [
+    {
+     "usage": "Tunnels et VPN",
+     "flows": 2,
+     "packets": 1123456,
+     "bytes": 5501316235264
+    },
+    {
+     "usage": "Non classé",
+     "flows": 1,
+     "packets": 2000000,
+     "bytes": 5497558138880
+    },
+    {
+     "usage": "Industriel et opérationnel",
+     "flows": 1,
+     "packets": 10,
+     "bytes": 1500
+    },
+    {
+     "usage": "Web",
+     "flows": 1,
+     "packets": 10,
+     "bytes": 1500
+    },
+    {
+     "usage": "Infrastructure réseau",
+     "flows": 1,
+     "packets": 1,
+     "bytes": 64
+    }
+   ]
+  },
+  "summaryBars": {
+   "protocols": [
+    "100%",
+    "100%",
+    "2%",
+    "2%",
+    "2%",
+    "2%"
+   ],
+   "scope": [
+    [
+     "< 0,1 %",
+     "2%"
+    ],
+    [
+     "100 %",
+     "99.9999999721426%"
+    ]
+   ],
+   "confidentiality": [
+    [
+     "50 %",
+     "50.0170839905572%"
+    ],
+    [
+     "< 0,1 %",
+     "2%"
+    ],
+    [
+     "50 %",
+     "49.98291598158541%"
+    ]
+   ],
+   "usages": [
+    [
+     "50 %",
+     "50.0170839905572%"
+    ],
+    [
+     "50 %",
+     "49.98291598158541%"
+    ],
+    [
+     "< 0,1 %",
+     "2%"
+    ],
+    [
+     "< 0,1 %",
+     "2%"
+    ],
+    [
+     "< 0,1 %",
+     "2%"
+    ]
+   ]
+  },
+  "traitShares": {
+   "scope": {
+    "internal": {
+     "flows": 3,
+     "packets": 21,
+     "bytes": 3064
+    },
+    "internet": {
+     "flows": 3,
+     "packets": 3123456,
+     "bytes": 10998874374144
+    }
+   },
+   "confidentiality": [
+    {
+     "kind": "Chiffré",
+     "flows": 2,
+     "packets": 2123456,
+     "bytes": 5501316235264
+    },
+    {
+     "kind": "En clair",
+     "flows": 3,
+     "packets": 21,
+     "bytes": 3064
+    },
+    {
+     "kind": "Indéterminé",
+     "flows": 1,
+     "packets": 1000000,
+     "bytes": 5497558138880
+    }
+   ],
+   "usages": [
+    {
+     "usage": "Tunnels et VPN",
+     "flows": 2,
+     "packets": 1123456,
+     "bytes": 5501316235264
+    },
+    {
+     "usage": "Non classé",
+     "flows": 1,
+     "packets": 2000000,
+     "bytes": 5497558138880
+    },
+    {
+     "usage": "Industriel et opérationnel",
+     "flows": 1,
+     "packets": 10,
+     "bytes": 1500
+    },
+    {
+     "usage": "Web",
+     "flows": 1,
+     "packets": 10,
+     "bytes": 1500
+    },
+    {
+     "usage": "Infrastructure réseau",
+     "flows": 1,
+     "packets": 1,
+     "bytes": 64
+    }
+   ]
+  },
+  "glossaryTokens": [
+   "capwap",
+   "goose",
+   "http",
+   "icmpv6",
+   "quic",
+   "tunnel",
+   "vlan",
+   "wireguard"
+  ],
+  "presentGlossary": [
+   "VLAN (802.1Q)",
+   "GOOSE",
+   "ICMPv6",
+   "QUIC",
+   "HTTP",
+   "WireGuard",
+   "Tunnel / CAPWAP"
+  ],
+  "wiki": {
+   "present:": [
+    "GOOSE",
+    "VLAN (802.1Q)",
+    "ICMPv6",
+    "QUIC",
+    "HTTP",
+    "WireGuard",
+    "Tunnel / CAPWAP"
+   ],
+   "present:modbus": [],
+   "present:réseau": [
+    "VLAN (802.1Q)"
+   ],
+   "present:tcp": [],
+   "present:vlan": [
+    "GOOSE",
+    "VLAN (802.1Q)"
+   ],
+   "present:zz": [],
+   "all:": [
+    "Adresse MAC",
+    "ARP",
+    "Broadcast",
+    "Ethernet",
+    "GOOSE",
+    "LINKTYPE / DLT",
+    "Linux SLL",
+    "LLDP",
+    "Multicast",
+    "OUI",
+    "RARP",
+    "STP",
+    "Unicast",
+    "VLAN (802.1Q)",
+    "APIPA / lien-local IPv4",
+    "CIDR / sous-réseau",
+    "ICMP",
+    "ICMPv6",
+    "IGMP",
+    "IPv4",
+    "IPv6",
+    "Lien-local IPv6",
+    "Loopback",
+    "MTU",
+    "NAT",
+    "TTL",
+    "ESP",
+    "Handshake TCP",
+    "Port",
+    "Port dynamique / éphémère",
+    "QUIC",
+    "TCP",
+    "UDP",
+    "Bitcoin",
+    "DHCP",
+    "DHCPv6",
+    "DNS",
+    "FTP",
+    "GIOP",
+    "HTTP",
+    "IKE",
+    "Kerberos",
+    "LDAP",
+    "LLMNR",
+    "mDNS",
+    "MQTT",
+    "NetBIOS",
+    "NNTP",
+    "NTP",
+    "OpenVPN",
+    "PostgreSQL",
+    "RADIUS",
+    "RDP",
+    "SLP / SRVLOC",
+    "SMB",
+    "SMTP",
+    "SNMP",
+    "SSDP / UPnP",
+    "SSH",
+    "Syslog",
+    "TLS / HTTPS",
+    "WireGuard",
+    "ADS/AMS",
+    "ASTERIX",
+    "Automate (PLC / API)",
+    "BACnet",
+    "COTP",
+    "DIS",
+    "DNP3",
+    "EtherNet/IP",
+    "ICS / OT",
+    "IEC 60870-5-104",
+    "Modbus/TCP",
+    "OPC UA",
+    "PROFINET",
+    "PTP",
+    "RTPS",
+    "S7comm",
+    "SCADA",
+    "STANAG 5066",
+    "UMAS",
+    "Valmet DNA",
+    "Capture passive",
+    "Endpoint",
+    "Flux",
+    "LFMS",
+    "Matrice de flux",
+    "Mode promiscuité",
+    "PCAP / PCAPNG",
+    "Port miroir / SPAN",
+    "Shadow IT/OT",
+    "TAP réseau",
+    "Tunnel / CAPWAP"
+   ],
+   "all:modbus": [
+    "Modbus/TCP",
+    "UMAS"
+   ],
+   "all:réseau": [
+    "Adresse MAC",
+    "ARP",
+    "Broadcast",
+    "Ethernet",
+    "STP",
+    "VLAN (802.1Q)",
+    "CIDR / sous-réseau",
+    "IPv4",
+    "NAT",
+    "Bitcoin",
+    "FTP",
+    "NetBIOS",
+    "NNTP",
+    "SLP / SRVLOC",
+    "SMTP",
+    "SNMP",
+    "IEC 60870-5-104",
+    "PTP",
+    "Valmet DNA",
+    "Capture passive",
+    "PCAP / PCAPNG",
+    "Shadow IT/OT",
+    "TAP réseau"
+   ],
+   "all:tcp": [
+    "Handshake TCP",
+    "TCP",
+    "OpenVPN",
+    "RDP",
+    "Modbus/TCP",
+    "STANAG 5066",
+    "UMAS",
+    "PCAP / PCAPNG"
+   ],
+   "all:vlan": [
+    "GOOSE",
+    "VLAN (802.1Q)",
+    "Endpoint"
+   ],
+   "all:zz": []
+  },
+  "flowSorts": {
+   "source:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "source:desc": [
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6",
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC"
+   ],
+   "target:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "target:desc": [
+    "aa00000000000003:aa00000000000005:ICMPv6",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000001:aa00000000000002:HTTP"
+   ],
+   "protocol:asc": [
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000003:aa00000000000005:ICMPv6",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard"
+   ],
+   "protocol:desc": [
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000005:ICMPv6",
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000001:aa00000000000004:CAPWAP"
+   ],
+   "ports:asc": [
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000003:aa00000000000005:ICMPv6",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000001:aa00000000000002:HTTP"
+   ],
+   "ports:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "bidir:asc": [
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000003:aa00000000000005:ICMPv6",
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard"
+   ],
+   "bidir:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "name:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "name:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "ip:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "ip:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "mac:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "mac:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "vlan:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "vlan:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "label:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "label:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "degree:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "degree:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "flowsOut:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "flowsOut:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "flowsIn:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "flowsIn:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "kind:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "kind:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "observed:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "observed:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "deduction:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "deduction:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "count:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "count:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "packets:asc": [
+    "aa00000000000003:aa00000000000005:ICMPv6",
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000004:QUIC"
+   ],
+   "packets:desc": [
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "bytes:asc": [
+    "aa00000000000003:aa00000000000005:ICMPv6",
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000004:QUIC"
+   ],
+   "bytes:desc": [
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ]
+  },
+  "endpointSorts": {
+   "source:asc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "source:desc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "target:asc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "target:desc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "protocol:asc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "protocol:desc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "ports:asc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "ports:desc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "bidir:asc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "bidir:desc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "name:asc": [
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000004",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "name:desc": [
+    "aa00000000000005",
+    "aa00000000000003",
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002"
+   ],
+   "ip:asc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "ip:desc": [
+    "aa00000000000005",
+    "aa00000000000003",
+    "aa00000000000002",
+    "aa00000000000001",
+    "aa00000000000004"
+   ],
+   "mac:asc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000005",
+    "aa00000000000003"
+   ],
+   "mac:desc": [
+    "aa00000000000003",
+    "aa00000000000005",
+    "aa00000000000002",
+    "aa00000000000001",
+    "aa00000000000004"
+   ],
+   "vlan:asc": [
+    "aa00000000000004",
+    "aa00000000000005",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003"
+   ],
+   "vlan:desc": [
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000004",
+    "aa00000000000005"
+   ],
+   "label:asc": [
+    "aa00000000000005",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000004",
+    "aa00000000000003"
+   ],
+   "label:desc": [
+    "aa00000000000003",
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000005"
+   ],
+   "degree:asc": [
+    "aa00000000000005",
+    "aa00000000000001",
+    "aa00000000000004",
+    "aa00000000000002",
+    "aa00000000000003"
+   ],
+   "degree:desc": [
+    "aa00000000000004",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000001",
+    "aa00000000000005"
+   ],
+   "flowsOut:asc": [
+    "aa00000000000005",
+    "aa00000000000001",
+    "aa00000000000003",
+    "aa00000000000004",
+    "aa00000000000002"
+   ],
+   "flowsOut:desc": [
+    "aa00000000000004",
+    "aa00000000000002",
+    "aa00000000000001",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "flowsIn:asc": [
+    "aa00000000000005",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000004"
+   ],
+   "flowsIn:desc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "kind:asc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "kind:desc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "observed:asc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "observed:desc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "deduction:asc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "deduction:desc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "count:asc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "count:desc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "packets:asc": [
+    "aa00000000000005",
+    "aa00000000000003",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000004"
+   ],
+   "packets:desc": [
+    "aa00000000000004",
+    "aa00000000000002",
+    "aa00000000000001",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "bytes:asc": [
+    "aa00000000000005",
+    "aa00000000000003",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000004"
+   ],
+   "bytes:desc": [
+    "aa00000000000004",
+    "aa00000000000002",
+    "aa00000000000001",
+    "aa00000000000003",
+    "aa00000000000005"
+   ]
+  },
+  "deductionSorts": {
+   "source:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "source:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "target:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "target:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "protocol:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "protocol:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "ports:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "ports:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "bidir:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "bidir:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "name:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "name:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "ip:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "ip:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "mac:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "mac:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "vlan:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "vlan:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "label:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "label:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "degree:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "degree:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "flowsOut:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "flowsOut:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "flowsIn:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "flowsIn:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "kind:asc": [
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080"
+   ],
+   "kind:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "observed:asc": [
+    "Fabricant (OUI):00:1B:21",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:fe80::1"
+   ],
+   "observed:desc": [
+    "Adresse connue:fe80::1",
+    "Fabricant (OUI):DC:A6:32",
+    "Port:8080",
+    "Port:80",
+    "Port:51820",
+    "Port:443",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:1.1.1.1",
+    "Fabricant (OUI):00:1B:21"
+   ],
+   "deduction:asc": [
+    "Adresse connue:1.1.1.1",
+    "Port:80",
+    "Port:8080",
+    "Port:443",
+    "Fabricant (OUI):00:1B:21",
+    "Adresse connue:fe80::1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Fabricant (OUI):DC:A6:32",
+    "Port:51820"
+   ],
+   "deduction:desc": [
+    "Port:51820",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1",
+    "Fabricant (OUI):00:1B:21",
+    "Port:443",
+    "Port:8080",
+    "Port:80",
+    "Adresse connue:1.1.1.1"
+   ],
+   "count:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1",
+    "Fabricant (OUI):00:1B:21"
+   ],
+   "count:desc": [
+    "Fabricant (OUI):00:1B:21",
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "packets:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "packets:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "bytes:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "bytes:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ]
+  },
+  "flowSearches": {
+   "": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "true": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard"
+   ],
+   "null": [],
+   "192.168": [],
+   "10.0.1": [],
+   "modbus": [],
+   "  DNS ": [],
+   "tls": [],
+   "ff:ff": [],
+   "doublon": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC"
+   ],
+   "é": [
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "aa000": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000001:aa00000000000004:CAPWAP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "—": [
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ]
+  },
+  "endpointSearches": {
+   "": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "true": [],
+   "null": [
+    "aa00000000000004",
+    "aa00000000000005"
+   ],
+   "192.168": [],
+   "10.0.1": [],
+   "modbus": [],
+   "  DNS ": [],
+   "tls": [],
+   "ff:ff": [],
+   "doublon": [
+    "aa00000000000001",
+    "aa00000000000002"
+   ],
+   "é": [
+    "aa00000000000003"
+   ],
+   "aa000": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "—": []
+  },
+  "deductionSearches": {
+   "": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "true": [],
+   "null": [],
+   "192.168": [],
+   "10.0.1": [],
+   "modbus": [],
+   "  DNS ": [
+    "Adresse connue:1.1.1.1"
+   ],
+   "tls": [
+    "Port:443"
+   ],
+   "ff:ff": [],
+   "doublon": [],
+   "é": [],
+   "aa000": [],
+   "—": []
+  }
+ },
+ "filtered": {
+  "hidden": [
+   "CAPWAP"
+  ],
+  "stats": {
+   "endpoints": 5,
+   "flows": 5,
+   "packets": 2123477,
+   "bytes": 5501316238328,
+   "protocols": 5,
+   "duplicateIps": 0
+  },
+  "protocolBreakdown": [
+   {
+    "protocol": "GOOSE",
+    "flows": 1
+   },
+   {
+    "protocol": "HTTP",
+    "flows": 1
+   },
+   {
+    "protocol": "ICMPv6",
+    "flows": 1
+   },
+   {
+    "protocol": "QUIC",
+    "flows": 1
+   },
+   {
+    "protocol": "WireGuard",
+    "flows": 1
+   }
+  ],
+  "flowRows": [
+   {
+    "id": "aa00000000000001:aa00000000000002:HTTP",
+    "sourceId": "aa00000000000001",
+    "targetId": "aa00000000000002",
+    "source": "Doublon",
+    "target": "Doublon",
+    "protocol": "HTTP",
+    "ports": "80, 8080",
+    "bidir": true,
+    "packets": 10,
+    "bytes": 1500
+   },
+   {
+    "id": "aa00000000000002:aa00000000000003:GOOSE",
+    "sourceId": "aa00000000000002",
+    "targetId": "aa00000000000003",
+    "source": "Doublon",
+    "target": "élan",
+    "protocol": "GOOSE",
+    "ports": "—",
+    "bidir": false,
+    "packets": 10,
+    "bytes": 1500
+   },
+   {
+    "id": "aa00000000000002:aa00000000000004:QUIC",
+    "sourceId": "aa00000000000002",
+    "targetId": "aa00000000000004",
+    "source": "Doublon",
+    "target": "Elan",
+    "protocol": "QUIC",
+    "ports": "443",
+    "bidir": true,
+    "packets": 2000000,
+    "bytes": 5497558138880
+   },
+   {
+    "id": "aa00000000000003:aa00000000000004:WireGuard",
+    "sourceId": "aa00000000000003",
+    "targetId": "aa00000000000004",
+    "source": "élan",
+    "target": "Elan",
+    "protocol": "WireGuard",
+    "ports": "51820",
+    "bidir": true,
+    "packets": 123456,
+    "bytes": 3758096384
+   },
+   {
+    "id": "aa00000000000003:aa00000000000005:ICMPv6",
+    "sourceId": "aa00000000000003",
+    "targetId": "aa00000000000005",
+    "source": "élan",
+    "target": "fe80::1",
+    "protocol": "ICMPv6",
+    "ports": "—",
+    "bidir": false,
+    "packets": 1,
+    "bytes": 64
+   }
+  ],
+  "endpointRows": [
+   {
+    "id": "aa00000000000004",
+    "name": "Elan",
+    "ip": "1.1.1.1",
+    "mac": "",
+    "macDisplay": "",
+    "macs": [],
+    "vlan": null,
+    "label": "Elan",
+    "duplicateIp": false,
+    "degree": 2,
+    "flowsOut": 2,
+    "flowsIn": 2,
+    "packets": 2123456,
+    "bytes": 5501316235264
+   },
+   {
+    "id": "aa00000000000001",
+    "name": "Doublon",
+    "ip": "172.16.0.1",
+    "mac": "00:1b:21:00:00:01",
+    "macDisplay": "00:1b:21:00:00:01",
+    "macs": [
+     "00:1b:21:00:00:01"
+    ],
+    "vlan": 100,
+    "label": "Doublon",
+    "duplicateIp": false,
+    "degree": 1,
+    "flowsOut": 1,
+    "flowsIn": 1,
+    "packets": 10,
+    "bytes": 1500
+   },
+   {
+    "id": "aa00000000000002",
+    "name": "Doublon",
+    "ip": "172.16.0.2",
+    "mac": "00:1b:21:00:00:02",
+    "macDisplay": "00:1b:21:00:00:02",
+    "macs": [
+     "00:1b:21:00:00:02"
+    ],
+    "vlan": 100,
+    "label": "Doublon",
+    "duplicateIp": false,
+    "degree": 3,
+    "flowsOut": 3,
+    "flowsIn": 2,
+    "packets": 2000020,
+    "bytes": 5497558141880
+   },
+   {
+    "id": "aa00000000000003",
+    "name": "élan",
+    "ip": "172.16.0.3",
+    "mac": "dc:a6:32:00:00:03",
+    "macDisplay": "dc:a6:32:00:00:03",
+    "macs": [
+     "dc:a6:32:00:00:03"
+    ],
+    "vlan": 100,
+    "label": "élan",
+    "duplicateIp": false,
+    "degree": 3,
+    "flowsOut": 2,
+    "flowsIn": 2,
+    "packets": 123467,
+    "bytes": 3758097948
+   },
+   {
+    "id": "aa00000000000005",
+    "name": "fe80::1",
+    "ip": "fe80::1",
+    "mac": "33:33:00:00:00:01",
+    "macDisplay": "",
+    "macs": [],
+    "vlan": null,
+    "label": "",
+    "duplicateIp": false,
+    "degree": 1,
+    "flowsOut": 0,
+    "flowsIn": 1,
+    "packets": 1,
+    "bytes": 64
+   }
+  ],
+  "portRows": [
+   {
+    "port": 80,
+    "service": "HTTP",
+    "flows": 1,
+    "packets": 10,
+    "bytes": 1500
+   },
+   {
+    "port": 443,
+    "service": "HTTPS (TLS)",
+    "flows": 1,
+    "packets": 2000000,
+    "bytes": 5497558138880
+   },
+   {
+    "port": 8080,
+    "service": "HTTP (proxy/alt)",
+    "flows": 1,
+    "packets": 10,
+    "bytes": 1500
+   },
+   {
+    "port": 51820,
+    "service": "WireGuard",
+    "flows": 1,
+    "packets": 123456,
+    "bytes": 3758096384
+   }
+  ],
+  "deductionRows": [
+   {
+    "kind": "Port",
+    "observed": "443",
+    "deduction": "HTTPS (TLS)",
+    "count": 1
+   },
+   {
+    "kind": "Port",
+    "observed": "51820",
+    "deduction": "WireGuard",
+    "count": 1
+   },
+   {
+    "kind": "Port",
+    "observed": "80",
+    "deduction": "HTTP",
+    "count": 1
+   },
+   {
+    "kind": "Port",
+    "observed": "8080",
+    "deduction": "HTTP (proxy/alt)",
+    "count": 1
+   },
+   {
+    "kind": "Fabricant (OUI)",
+    "observed": "00:1B:21",
+    "deduction": "Intel",
+    "count": 2
+   },
+   {
+    "kind": "Fabricant (OUI)",
+    "observed": "DC:A6:32",
+    "deduction": "Raspberry Pi",
+    "count": 1
+   },
+   {
+    "kind": "Adresse connue",
+    "observed": "1.1.1.1",
+    "deduction": "Cloudflare DNS",
+    "count": 1
+   },
+   {
+    "kind": "Adresse connue",
+    "observed": "33:33:00:00:00:01",
+    "deduction": "Multicast IPv6",
+    "count": 1
+   },
+   {
+    "kind": "Adresse connue",
+    "observed": "fe80::1",
+    "deduction": "Lien-local (IPv6)",
+    "count": 1
+   }
+  ],
+  "summary": {
+   "protocols": [
+    {
+     "protocol": "QUIC",
+     "flows": 1,
+     "packets": 2000000,
+     "bytes": 5497558138880
+    },
+    {
+     "protocol": "WireGuard",
+     "flows": 1,
+     "packets": 123456,
+     "bytes": 3758096384
+    },
+    {
+     "protocol": "GOOSE",
+     "flows": 1,
+     "packets": 10,
+     "bytes": 1500
+    },
+    {
+     "protocol": "HTTP",
+     "flows": 1,
+     "packets": 10,
+     "bytes": 1500
+    },
+    {
+     "protocol": "ICMPv6",
+     "flows": 1,
+     "packets": 1,
+     "bytes": 64
+    }
+   ],
+   "topEndpoints": [
+    {
+     "id": "aa00000000000004",
+     "name": "Elan",
+     "ip": "1.1.1.1",
+     "mac": "",
+     "macDisplay": "",
+     "macs": [],
+     "vlan": null,
+     "label": "Elan",
+     "duplicateIp": false,
+     "degree": 2,
+     "flowsOut": 2,
+     "flowsIn": 2,
+     "packets": 2123456,
+     "bytes": 5501316235264
+    },
+    {
+     "id": "aa00000000000002",
+     "name": "Doublon",
+     "ip": "172.16.0.2",
+     "mac": "00:1b:21:00:00:02",
+     "macDisplay": "00:1b:21:00:00:02",
+     "macs": [
+      "00:1b:21:00:00:02"
+     ],
+     "vlan": 100,
+     "label": "Doublon",
+     "duplicateIp": false,
+     "degree": 3,
+     "flowsOut": 3,
+     "flowsIn": 2,
+     "packets": 2000020,
+     "bytes": 5497558141880
+    },
+    {
+     "id": "aa00000000000003",
+     "name": "élan",
+     "ip": "172.16.0.3",
+     "mac": "dc:a6:32:00:00:03",
+     "macDisplay": "dc:a6:32:00:00:03",
+     "macs": [
+      "dc:a6:32:00:00:03"
+     ],
+     "vlan": 100,
+     "label": "élan",
+     "duplicateIp": false,
+     "degree": 3,
+     "flowsOut": 2,
+     "flowsIn": 2,
+     "packets": 123467,
+     "bytes": 3758097948
+    },
+    {
+     "id": "aa00000000000001",
+     "name": "Doublon",
+     "ip": "172.16.0.1",
+     "mac": "00:1b:21:00:00:01",
+     "macDisplay": "00:1b:21:00:00:01",
+     "macs": [
+      "00:1b:21:00:00:01"
+     ],
+     "vlan": 100,
+     "label": "Doublon",
+     "duplicateIp": false,
+     "degree": 1,
+     "flowsOut": 1,
+     "flowsIn": 1,
+     "packets": 10,
+     "bytes": 1500
+    },
+    {
+     "id": "aa00000000000005",
+     "name": "fe80::1",
+     "ip": "fe80::1",
+     "mac": "33:33:00:00:00:01",
+     "macDisplay": "",
+     "macs": [],
+     "vlan": null,
+     "label": "",
+     "duplicateIp": false,
+     "degree": 1,
+     "flowsOut": 0,
+     "flowsIn": 1,
+     "packets": 1,
+     "bytes": 64
+    }
+   ],
+   "topFlows": [
+    {
+     "id": "aa00000000000002:aa00000000000004:QUIC",
+     "sourceId": "aa00000000000002",
+     "targetId": "aa00000000000004",
+     "source": "Doublon",
+     "target": "Elan",
+     "protocol": "QUIC",
+     "ports": "443",
+     "bidir": true,
+     "packets": 2000000,
+     "bytes": 5497558138880
+    },
+    {
+     "id": "aa00000000000003:aa00000000000004:WireGuard",
+     "sourceId": "aa00000000000003",
+     "targetId": "aa00000000000004",
+     "source": "élan",
+     "target": "Elan",
+     "protocol": "WireGuard",
+     "ports": "51820",
+     "bidir": true,
+     "packets": 123456,
+     "bytes": 3758096384
+    },
+    {
+     "id": "aa00000000000001:aa00000000000002:HTTP",
+     "sourceId": "aa00000000000001",
+     "targetId": "aa00000000000002",
+     "source": "Doublon",
+     "target": "Doublon",
+     "protocol": "HTTP",
+     "ports": "80, 8080",
+     "bidir": true,
+     "packets": 10,
+     "bytes": 1500
+    },
+    {
+     "id": "aa00000000000002:aa00000000000003:GOOSE",
+     "sourceId": "aa00000000000002",
+     "targetId": "aa00000000000003",
+     "source": "Doublon",
+     "target": "élan",
+     "protocol": "GOOSE",
+     "ports": "—",
+     "bidir": false,
+     "packets": 10,
+     "bytes": 1500
+    },
+    {
+     "id": "aa00000000000003:aa00000000000005:ICMPv6",
+     "sourceId": "aa00000000000003",
+     "targetId": "aa00000000000005",
+     "source": "élan",
+     "target": "fe80::1",
+     "protocol": "ICMPv6",
+     "ports": "—",
+     "bidir": false,
+     "packets": 1,
+     "bytes": 64
+    }
+   ],
+   "unlabeled": 1,
+   "scope": {
+    "internal": {
+     "flows": 3,
+     "packets": 21,
+     "bytes": 3064
+    },
+    "internet": {
+     "flows": 2,
+     "packets": 2123456,
+     "bytes": 5501316235264
+    }
+   },
+   "confidentiality": [
+    {
+     "kind": "Chiffré",
+     "flows": 2,
+     "packets": 2123456,
+     "bytes": 5501316235264
+    },
+    {
+     "kind": "En clair",
+     "flows": 3,
+     "packets": 21,
+     "bytes": 3064
+    },
+    {
+     "kind": "Indéterminé",
+     "flows": 0,
+     "packets": 0,
+     "bytes": 0
+    }
+   ],
+   "usages": [
+    {
+     "usage": "Non classé",
+     "flows": 1,
+     "packets": 2000000,
+     "bytes": 5497558138880
+    },
+    {
+     "usage": "Tunnels et VPN",
+     "flows": 1,
+     "packets": 123456,
+     "bytes": 3758096384
+    },
+    {
+     "usage": "Industriel et opérationnel",
+     "flows": 1,
+     "packets": 10,
+     "bytes": 1500
+    },
+    {
+     "usage": "Web",
+     "flows": 1,
+     "packets": 10,
+     "bytes": 1500
+    },
+    {
+     "usage": "Infrastructure réseau",
+     "flows": 1,
+     "packets": 1,
+     "bytes": 64
+    }
+   ]
+  },
+  "summaryBars": {
+   "protocols": [
+    "100%",
+    "2%",
+    "2%",
+    "2%",
+    "2%"
+   ],
+   "scope": [
+    [
+     "< 0,1 %",
+     "2%"
+    ],
+    [
+     "100 %",
+     "99.99999994430424%"
+    ]
+   ],
+   "confidentiality": [
+    [
+     "100 %",
+     "99.99999994430424%"
+    ],
+    [
+     "< 0,1 %",
+     "2%"
+    ],
+    [
+     "0 %",
+     "0%"
+    ]
+   ],
+   "usages": [
+    [
+     "99,9 %",
+     "99.93168726746124%"
+    ],
+    [
+     "< 0,1 %",
+     "2%"
+    ],
+    [
+     "< 0,1 %",
+     "2%"
+    ],
+    [
+     "< 0,1 %",
+     "2%"
+    ],
+    [
+     "< 0,1 %",
+     "2%"
+    ]
+   ]
+  },
+  "traitShares": {
+   "scope": {
+    "internal": {
+     "flows": 3,
+     "packets": 21,
+     "bytes": 3064
+    },
+    "internet": {
+     "flows": 2,
+     "packets": 2123456,
+     "bytes": 5501316235264
+    }
+   },
+   "confidentiality": [
+    {
+     "kind": "Chiffré",
+     "flows": 2,
+     "packets": 2123456,
+     "bytes": 5501316235264
+    },
+    {
+     "kind": "En clair",
+     "flows": 3,
+     "packets": 21,
+     "bytes": 3064
+    },
+    {
+     "kind": "Indéterminé",
+     "flows": 0,
+     "packets": 0,
+     "bytes": 0
+    }
+   ],
+   "usages": [
+    {
+     "usage": "Non classé",
+     "flows": 1,
+     "packets": 2000000,
+     "bytes": 5497558138880
+    },
+    {
+     "usage": "Tunnels et VPN",
+     "flows": 1,
+     "packets": 123456,
+     "bytes": 3758096384
+    },
+    {
+     "usage": "Industriel et opérationnel",
+     "flows": 1,
+     "packets": 10,
+     "bytes": 1500
+    },
+    {
+     "usage": "Web",
+     "flows": 1,
+     "packets": 10,
+     "bytes": 1500
+    },
+    {
+     "usage": "Infrastructure réseau",
+     "flows": 1,
+     "packets": 1,
+     "bytes": 64
+    }
+   ]
+  },
+  "glossaryTokens": [
+   "capwap",
+   "goose",
+   "http",
+   "icmpv6",
+   "quic",
+   "tunnel",
+   "vlan",
+   "wireguard"
+  ],
+  "presentGlossary": [
+   "VLAN (802.1Q)",
+   "GOOSE",
+   "ICMPv6",
+   "QUIC",
+   "HTTP",
+   "WireGuard",
+   "Tunnel / CAPWAP"
+  ],
+  "wiki": {
+   "present:": [
+    "GOOSE",
+    "VLAN (802.1Q)",
+    "ICMPv6",
+    "QUIC",
+    "HTTP",
+    "WireGuard",
+    "Tunnel / CAPWAP"
+   ],
+   "present:modbus": [],
+   "present:réseau": [
+    "VLAN (802.1Q)"
+   ],
+   "present:tcp": [],
+   "present:vlan": [
+    "GOOSE",
+    "VLAN (802.1Q)"
+   ],
+   "present:zz": [],
+   "all:": [
+    "Adresse MAC",
+    "ARP",
+    "Broadcast",
+    "Ethernet",
+    "GOOSE",
+    "LINKTYPE / DLT",
+    "Linux SLL",
+    "LLDP",
+    "Multicast",
+    "OUI",
+    "RARP",
+    "STP",
+    "Unicast",
+    "VLAN (802.1Q)",
+    "APIPA / lien-local IPv4",
+    "CIDR / sous-réseau",
+    "ICMP",
+    "ICMPv6",
+    "IGMP",
+    "IPv4",
+    "IPv6",
+    "Lien-local IPv6",
+    "Loopback",
+    "MTU",
+    "NAT",
+    "TTL",
+    "ESP",
+    "Handshake TCP",
+    "Port",
+    "Port dynamique / éphémère",
+    "QUIC",
+    "TCP",
+    "UDP",
+    "Bitcoin",
+    "DHCP",
+    "DHCPv6",
+    "DNS",
+    "FTP",
+    "GIOP",
+    "HTTP",
+    "IKE",
+    "Kerberos",
+    "LDAP",
+    "LLMNR",
+    "mDNS",
+    "MQTT",
+    "NetBIOS",
+    "NNTP",
+    "NTP",
+    "OpenVPN",
+    "PostgreSQL",
+    "RADIUS",
+    "RDP",
+    "SLP / SRVLOC",
+    "SMB",
+    "SMTP",
+    "SNMP",
+    "SSDP / UPnP",
+    "SSH",
+    "Syslog",
+    "TLS / HTTPS",
+    "WireGuard",
+    "ADS/AMS",
+    "ASTERIX",
+    "Automate (PLC / API)",
+    "BACnet",
+    "COTP",
+    "DIS",
+    "DNP3",
+    "EtherNet/IP",
+    "ICS / OT",
+    "IEC 60870-5-104",
+    "Modbus/TCP",
+    "OPC UA",
+    "PROFINET",
+    "PTP",
+    "RTPS",
+    "S7comm",
+    "SCADA",
+    "STANAG 5066",
+    "UMAS",
+    "Valmet DNA",
+    "Capture passive",
+    "Endpoint",
+    "Flux",
+    "LFMS",
+    "Matrice de flux",
+    "Mode promiscuité",
+    "PCAP / PCAPNG",
+    "Port miroir / SPAN",
+    "Shadow IT/OT",
+    "TAP réseau",
+    "Tunnel / CAPWAP"
+   ],
+   "all:modbus": [
+    "Modbus/TCP",
+    "UMAS"
+   ],
+   "all:réseau": [
+    "Adresse MAC",
+    "ARP",
+    "Broadcast",
+    "Ethernet",
+    "STP",
+    "VLAN (802.1Q)",
+    "CIDR / sous-réseau",
+    "IPv4",
+    "NAT",
+    "Bitcoin",
+    "FTP",
+    "NetBIOS",
+    "NNTP",
+    "SLP / SRVLOC",
+    "SMTP",
+    "SNMP",
+    "IEC 60870-5-104",
+    "PTP",
+    "Valmet DNA",
+    "Capture passive",
+    "PCAP / PCAPNG",
+    "Shadow IT/OT",
+    "TAP réseau"
+   ],
+   "all:tcp": [
+    "Handshake TCP",
+    "TCP",
+    "OpenVPN",
+    "RDP",
+    "Modbus/TCP",
+    "STANAG 5066",
+    "UMAS",
+    "PCAP / PCAPNG"
+   ],
+   "all:vlan": [
+    "GOOSE",
+    "VLAN (802.1Q)",
+    "Endpoint"
+   ],
+   "all:zz": []
+  },
+  "flowSorts": {
+   "source:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "source:desc": [
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6",
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC"
+   ],
+   "target:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "target:desc": [
+    "aa00000000000003:aa00000000000005:ICMPv6",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000001:aa00000000000002:HTTP"
+   ],
+   "protocol:asc": [
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000003:aa00000000000005:ICMPv6",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard"
+   ],
+   "protocol:desc": [
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000005:ICMPv6",
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE"
+   ],
+   "ports:asc": [
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000003:aa00000000000005:ICMPv6",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000001:aa00000000000002:HTTP"
+   ],
+   "ports:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "bidir:asc": [
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000003:aa00000000000005:ICMPv6",
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard"
+   ],
+   "bidir:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "name:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "name:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "ip:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "ip:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "mac:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "mac:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "vlan:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "vlan:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "label:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "label:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "degree:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "degree:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "flowsOut:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "flowsOut:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "flowsIn:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "flowsIn:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "kind:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "kind:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "observed:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "observed:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "deduction:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "deduction:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "count:asc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "count:desc": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "packets:asc": [
+    "aa00000000000003:aa00000000000005:ICMPv6",
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000002:aa00000000000004:QUIC"
+   ],
+   "packets:desc": [
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "bytes:asc": [
+    "aa00000000000003:aa00000000000005:ICMPv6",
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000002:aa00000000000004:QUIC"
+   ],
+   "bytes:desc": [
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ]
+  },
+  "endpointSorts": {
+   "source:asc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "source:desc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "target:asc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "target:desc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "protocol:asc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "protocol:desc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "ports:asc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "ports:desc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "bidir:asc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "bidir:desc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "name:asc": [
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000004",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "name:desc": [
+    "aa00000000000005",
+    "aa00000000000003",
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002"
+   ],
+   "ip:asc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "ip:desc": [
+    "aa00000000000005",
+    "aa00000000000003",
+    "aa00000000000002",
+    "aa00000000000001",
+    "aa00000000000004"
+   ],
+   "mac:asc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000005",
+    "aa00000000000003"
+   ],
+   "mac:desc": [
+    "aa00000000000003",
+    "aa00000000000005",
+    "aa00000000000002",
+    "aa00000000000001",
+    "aa00000000000004"
+   ],
+   "vlan:asc": [
+    "aa00000000000004",
+    "aa00000000000005",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003"
+   ],
+   "vlan:desc": [
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000004",
+    "aa00000000000005"
+   ],
+   "label:asc": [
+    "aa00000000000005",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000004",
+    "aa00000000000003"
+   ],
+   "label:desc": [
+    "aa00000000000003",
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000005"
+   ],
+   "degree:asc": [
+    "aa00000000000001",
+    "aa00000000000005",
+    "aa00000000000004",
+    "aa00000000000002",
+    "aa00000000000003"
+   ],
+   "degree:desc": [
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000005"
+   ],
+   "flowsOut:asc": [
+    "aa00000000000005",
+    "aa00000000000001",
+    "aa00000000000004",
+    "aa00000000000003",
+    "aa00000000000002"
+   ],
+   "flowsOut:desc": [
+    "aa00000000000002",
+    "aa00000000000004",
+    "aa00000000000003",
+    "aa00000000000001",
+    "aa00000000000005"
+   ],
+   "flowsIn:asc": [
+    "aa00000000000001",
+    "aa00000000000005",
+    "aa00000000000004",
+    "aa00000000000002",
+    "aa00000000000003"
+   ],
+   "flowsIn:desc": [
+    "aa00000000000004",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000001",
+    "aa00000000000005"
+   ],
+   "kind:asc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "kind:desc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "observed:asc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "observed:desc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "deduction:asc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "deduction:desc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "count:asc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "count:desc": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "packets:asc": [
+    "aa00000000000005",
+    "aa00000000000001",
+    "aa00000000000003",
+    "aa00000000000002",
+    "aa00000000000004"
+   ],
+   "packets:desc": [
+    "aa00000000000004",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000001",
+    "aa00000000000005"
+   ],
+   "bytes:asc": [
+    "aa00000000000005",
+    "aa00000000000001",
+    "aa00000000000003",
+    "aa00000000000002",
+    "aa00000000000004"
+   ],
+   "bytes:desc": [
+    "aa00000000000004",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000001",
+    "aa00000000000005"
+   ]
+  },
+  "deductionSorts": {
+   "source:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "source:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "target:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "target:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "protocol:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "protocol:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "ports:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "ports:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "bidir:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "bidir:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "name:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "name:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "ip:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "ip:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "mac:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "mac:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "vlan:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "vlan:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "label:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "label:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "degree:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "degree:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "flowsOut:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "flowsOut:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "flowsIn:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "flowsIn:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "kind:asc": [
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080"
+   ],
+   "kind:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "observed:asc": [
+    "Fabricant (OUI):00:1B:21",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:fe80::1"
+   ],
+   "observed:desc": [
+    "Adresse connue:fe80::1",
+    "Fabricant (OUI):DC:A6:32",
+    "Port:8080",
+    "Port:80",
+    "Port:51820",
+    "Port:443",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:1.1.1.1",
+    "Fabricant (OUI):00:1B:21"
+   ],
+   "deduction:asc": [
+    "Adresse connue:1.1.1.1",
+    "Port:80",
+    "Port:8080",
+    "Port:443",
+    "Fabricant (OUI):00:1B:21",
+    "Adresse connue:fe80::1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Fabricant (OUI):DC:A6:32",
+    "Port:51820"
+   ],
+   "deduction:desc": [
+    "Port:51820",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1",
+    "Fabricant (OUI):00:1B:21",
+    "Port:443",
+    "Port:8080",
+    "Port:80",
+    "Adresse connue:1.1.1.1"
+   ],
+   "count:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1",
+    "Fabricant (OUI):00:1B:21"
+   ],
+   "count:desc": [
+    "Fabricant (OUI):00:1B:21",
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "packets:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "packets:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "bytes:asc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "bytes:desc": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ]
+  },
+  "flowSearches": {
+   "": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "true": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard"
+   ],
+   "null": [],
+   "192.168": [],
+   "10.0.1": [],
+   "modbus": [],
+   "  DNS ": [],
+   "tls": [],
+   "ff:ff": [],
+   "doublon": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC"
+   ],
+   "é": [
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "aa000": [
+    "aa00000000000001:aa00000000000002:HTTP",
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000002:aa00000000000004:QUIC",
+    "aa00000000000003:aa00000000000004:WireGuard",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ],
+   "—": [
+    "aa00000000000002:aa00000000000003:GOOSE",
+    "aa00000000000003:aa00000000000005:ICMPv6"
+   ]
+  },
+  "endpointSearches": {
+   "": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "true": [],
+   "null": [
+    "aa00000000000004",
+    "aa00000000000005"
+   ],
+   "192.168": [],
+   "10.0.1": [],
+   "modbus": [],
+   "  DNS ": [],
+   "tls": [],
+   "ff:ff": [],
+   "doublon": [
+    "aa00000000000001",
+    "aa00000000000002"
+   ],
+   "é": [
+    "aa00000000000003"
+   ],
+   "aa000": [
+    "aa00000000000004",
+    "aa00000000000001",
+    "aa00000000000002",
+    "aa00000000000003",
+    "aa00000000000005"
+   ],
+   "—": []
+  },
+  "deductionSearches": {
+   "": [
+    "Port:443",
+    "Port:51820",
+    "Port:80",
+    "Port:8080",
+    "Fabricant (OUI):00:1B:21",
+    "Fabricant (OUI):DC:A6:32",
+    "Adresse connue:1.1.1.1",
+    "Adresse connue:33:33:00:00:00:01",
+    "Adresse connue:fe80::1"
+   ],
+   "true": [],
+   "null": [],
+   "192.168": [],
+   "10.0.1": [],
+   "modbus": [],
+   "  DNS ": [
+    "Adresse connue:1.1.1.1"
+   ],
+   "tls": [
+    "Port:443"
+   ],
+   "ff:ff": [],
+   "doublon": [],
+   "é": [],
+   "aa000": [],
+   "—": []
+  }
+ },
+ "period": {
+  "state": "known",
+  "first": 1790899199999,
+  "last": 1791950400000,
+  "duration": "12 j 4 h"
+ }
+}

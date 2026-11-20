@@ -1,0 +1,8 @@
+# Mises à jour des actions GitHub épinglées par SHA. Les dépendances Cargo
+# restent figées à la main (voir « Hors périmètre » dans le README).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

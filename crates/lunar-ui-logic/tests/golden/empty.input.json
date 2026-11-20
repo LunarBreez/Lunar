@@ -1,0 +1,20 @@
+{
+  "timeZone": "UTC",
+  "offsetSeconds": 0,
+  "generatedAt": "2026-11-19T09:15:42.123Z",
+  "graph": {
+    "nodes": {},
+    "edges": {}
+  },
+  "csvFileName": "20261119_DR_Synthese.csv",
+  "csvSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "csvBytes": 0,
+  "linkType": null,
+  "site": null,
+  "sensor": null,
+  "interface": null,
+  "appVersion": "0.1.0",
+  "period": {
+    "state": "empty"
+  }
+}

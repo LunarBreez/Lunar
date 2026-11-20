@@ -1,0 +1,9 @@
+# generator=script/pcap/generate-common-flows.py
+# tshark=TShark (Wireshark) 4.6.6.
+# capture_sha256=a893f783e557541729543f64f0d91e4af2603abefcd6e0ac2472a92b4e51c4ab
+# projection=gtpu_inner
+# included_packets=2
+# included_bytes=136
+mac_source	mac_destination	vlan_id	ether_type	ip_source	ip_destination	ip_protocol	port_source	port_destination	count	total_bytes	last_seen_us
+			34525	fe80::224c:4fff:fe43:414c	ff02::1:3	17	1234	5355	1	80	1333458851770000
+			34525	fe80::224c:4fff:fe43:414c	ff02::2	58			1	56	1333458851969236

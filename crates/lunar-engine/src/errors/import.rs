@@ -1,0 +1,55 @@
+//! Erreurs de l'import de fichiers PCAP.
+
+use thiserror::Error;
+
+/// Erreur d'import PCAP (fichier illisible, format non reconnu ou lecture
+/// interrompue en cours de fichier).
+#[derive(Error, Debug)]
+pub enum PcapImportError {
+    /// La commande a été appelée sans aucune source. Cette erreur est
+    /// distinguée de l'IO pour que le frontend puisse expliquer le refus et
+    /// pour garantir qu'il intervient avant tout événement ou mutation.
+    #[error("Aucun fichier sélectionné pour {0}")]
+    MissingInput(String),
+    /// Npcap introuvable sous Windows : la lecture des fichiers
+    /// PCAP passe par libpcap. Refusé avant tout événement ou mutation.
+    #[error("{0}")]
+    NpcapMissing(String),
+    /// Fichier impossible à ouvrir ou non reconnu (PCAP illisible, archive
+    /// projet invalide) : (chemin, cause). Refusé avant toute mutation.
+    #[error("Failed to open pcap file {0}: {1}")]
+    OpenFileError(String, String),
+    /// Erreur de lecture au milieu du fichier (tronqué, corrompu) : distincte
+    /// de la fin normale pour ne jamais produire une matrice partielle en
+    /// silence.
+    #[error("Read error in pcap file {0}: {1}")]
+    ReadPacketError(String, String),
+    /// Type de liaison du fichier sans décodeur dans cette version : refusé
+    /// avant toute mutation, jamais parsé comme de l'Ethernet.
+    #[error("Type de liaison non supporté dans {0} : {1}")]
+    UnsupportedLinkType(String, String),
+    /// Import interrompu à la demande de l'opérateur : issue normale (pas un
+    /// défaut), l'état partagé est préservé comme pour tout import rejeté.
+    #[error("Import annulé par l'opérateur pendant {0}")]
+    Cancelled(String),
+}
+
+/// Représentation sérialisable de [`PcapImportError`] (forme `{ kind, message }`).
+#[derive(serde::Serialize)]
+#[serde(tag = "kind", content = "message")]
+#[serde(rename_all = "camelCase")]
+pub enum PcapImportErrorKind {
+    /// `{ kind: "missingInput", message }` : nom de l'opération sans source.
+    MissingInput(String),
+    /// `{ kind: "npcapMissing", message }` : message d'installation de Npcap.
+    NpcapMissing(String),
+    /// `{ kind: "openFileError", message: [chemin, cause] }`.
+    OpenFileError(String, String),
+    /// `{ kind: "readPacketError", message: [chemin, cause] }`.
+    ReadPacketError(String, String),
+    /// `{ kind: "unsupportedLinkType", message: [chemin, libellé du DLT] }`.
+    UnsupportedLinkType(String, String),
+    /// `{ kind: "cancelled", message }` : fichier en cours au moment de
+    /// l'annulation.
+    Cancelled(String),
+}

@@ -1,0 +1,37 @@
+[workspace]
+resolver = "2"
+# lunar-flows-core : cœur métier (matrices, CSV, graphe, PCAP) ; lunar-engine :
+# capture, imports, labels, projet ; lunar-ui-logic : logique d'interface
+# testable sans fenêtre ; lunar : l'application gpui.
+members = [
+  "crates/lunar-flows-core",
+  "crates/lunar-engine",
+  "crates/lunar-ui-logic",
+  "crates/lunar",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.97.1"
+license = "AGPL-3.0-only"
+version = "0.1.0"
+
+# Pas de panic évitable dans le code livré, documentation complète ;
+# clippy.toml autorise unwrap, expect et panic dans les tests.
+[workspace.lints.rust]
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+missing_docs_in_private_items = "warn"
+
+# Compilation Windows de contrôle depuis Linux (cargo-xwin) : en release,
+# gpui 0.2.2 précompile ses shaders HLSL avec fxc.exe, introuvable hors de
+# Windows. Avec les assertions de débogage, il les compile au lancement
+# (D3DCompile) : binaire optimisé, démarrage un peu plus lent. Jamais pour
+# une livraison.
+[profile.windows-check]
+inherits = "release"
+debug-assertions = true

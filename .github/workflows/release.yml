@@ -1,0 +1,190 @@
+# Publication d'une version : binaires Linux et Windows, smoke tests,
+# SHA256SUMS, attestation de provenance et release GitHub.
+#
+# - Push d'un tag vX.Y.Z (égal à la version du workspace) : construit, teste
+#   et publie la release.
+# - Lancement manuel (workflow_dispatch) : construit et teste seulement ;
+#   les archives restent en artefacts du run, rien n'est publié.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      label: ${{ steps.version.outputs.label }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Version du workspace et du tag
+        id: version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          [[ -n "$version" ]] || { echo "version introuvable dans Cargo.toml" >&2; exit 1; }
+          if [[ "$REF_TYPE" == "tag" ]]; then
+            [[ "$REF_NAME" == "v$version" ]] ||
+              { echo "le tag $REF_NAME ne correspond pas à la version $version" >&2; exit 1; }
+            label="$version"
+          else
+            label="$version-dev.${SHA:0:7}"
+          fi
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "label=$label" >>"$GITHUB_OUTPUT"
+          echo "Version $version, archives étiquetées $label"
+
+  linux:
+    name: Linux x86_64
+    needs: version
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      LABEL: ${{ needs.version.outputs.label }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Dépendances système
+        run: script/ci/install-linux-deps.sh --smoke
+
+      - name: Toolchain Rust
+        run: script/ci/install-toolchain.sh
+
+      - name: Compilation release
+        run: cargo build --release --locked -p lunar
+
+      - name: Smoke test
+        run: script/ci/smoke-linux.sh target/release/lunar
+
+      - name: Archive
+        run: |
+          name="lunar-$LABEL-x86_64-linux-gnu"
+          mkdir -p "dist/$name"
+          cp target/release/lunar LICENSE.md README.md "dist/$name/"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          rm -r "dist/$name"
+          ls -l dist
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lunar-linux
+          path: dist/*
+          if-no-files-found: error
+
+  windows:
+    name: Windows x86_64
+    needs: version
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      LABEL: ${{ needs.version.outputs.label }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Toolchain Rust
+        run: script/ci/install-toolchain.sh
+
+      # gpui précompile ses shaders avec fxc.exe en release : prendre celui
+      # du Windows SDK le plus récent installé sur le runner.
+      - name: Compilateur de shaders fxc.exe
+        run: |
+          fxc="$(find "/c/Program Files (x86)/Windows Kits/10/bin" -maxdepth 3 -path '*/10.*/x64/fxc.exe' | sort -V | tail -1)"
+          [[ -n "$fxc" ]] || { echo "fxc.exe introuvable" >&2; exit 1; }
+          echo "GPUI_FXC_PATH=$(cygpath -w "$fxc")" >>"$GITHUB_ENV"
+          echo "fxc : $fxc"
+
+      - name: Compilation release
+        run: cargo build --release --locked -p lunar
+
+      - name: Smoke test (sans Npcap)
+        run: target/release/lunar.exe --version | grep -E '^lunar [0-9]'
+
+      - name: Archive
+        run: |
+          name="lunar-$LABEL-x86_64-windows"
+          mkdir -p "dist/$name"
+          cp target/release/lunar.exe LICENSE.md README.md "dist/$name/"
+          (cd dist && 7z a -tzip "$name.zip" "$name" >/dev/null)
+          rm -r "dist/$name"
+          ls -l dist
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lunar-windows
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publication
+    if: github.ref_type == 'tag'
+    needs: [version, linux, windows]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: SHA256SUMS
+        working-directory: dist
+        run: |
+          sha256sum -- *.tar.gz *.zip >SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+
+      - name: Release GitHub
+        run: |
+          cat >notes.md <<EOF
+          LUNAR $VERSION : relevé de matrices de flux réseau, interface native gpui.
+
+          - **Linux x86_64** (\`*-x86_64-linux-gnu.tar.gz\`) : X11 ou XWayland, GTK 3 et libpcap.
+            Pour la capture en direct : \`sudo setcap cap_net_raw=eip ./lunar\`.
+          - **Windows x86_64** (\`*-x86_64-windows.zip\`) : la capture exige [Npcap](https://npcap.com/).
+            Sans Npcap, LUNAR démarre et importe des PCAP.
+
+          Vérification : \`sha256sum -c SHA256SUMS\`, puis
+          \`gh attestation verify <archive> --repo $GH_REPO\`.
+          EOF
+          gh release create "$TAG" dist/* --verify-tag --title "LUNAR $VERSION" --notes-file notes.md

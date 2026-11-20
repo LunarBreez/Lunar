@@ -1,0 +1,30 @@
+[package]
+name = "lunar-ui-logic"
+description = "Logique d'interface de LUNAR, testable sans fenêtre"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+lunar-flows-core = { path = "../lunar-flows-core" }
+# Contrat des événements et des erreurs du moteur (`capture_store`, `errors`) :
+# un écart de variante est une erreur de compilation.
+lunar-engine = { path = "../lunar-engine" }
+log = "0.4.33"
+# Tri et comparaison de texte fr-FR à l'identique de `localeCompare("fr")`
+# (investigation : tri des tableaux, normalisation du glossaire).
+icu_collator = "2.4.0"
+icu_locale_core = "2.4.0"
+icu_normalizer = "2.4.0"
+# Préférences d'interface (projets récents), fichier JSON.
+serde_json = "1.0.154"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+# Trames réelles parsées dans les essais du store de capture.
+packet_parser = "11.8.2"

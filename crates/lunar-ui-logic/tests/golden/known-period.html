@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="LUNAR 0.1.0">
+<title>Synthèse du relevé LUNAR — 13 octobre 2026 à 22:59:59</title>
+<style>
+:root { color-scheme: light; }
+body { margin: 0; padding: 24px 32px 48px; font: 14px/1.45 "Segoe UI", system-ui, sans-serif; color: #1c2430; background: #ffffff; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+h2 { font-size: 16px; margin: 32px 0 10px; padding-bottom: 4px; border-bottom: 2px solid #d5dde8; }
+.sub { color: #556274; margin: 0 0 16px; }
+.muted { color: #6b7686; }
+.warn { color: #9a4a00; font-weight: 600; }
+dl.context { display: grid; grid-template-columns: max-content 1fr; gap: 2px 16px; margin: 0 0 16px; }
+dl.context dt { font-weight: 600; }
+dl.context dd { margin: 0; }
+.fingerprint { border: 1px solid #c7d3e3; background: #f4f7fb; border-radius: 6px; padding: 12px 16px; }
+.fingerprint p { margin: 4px 0; }
+code, .hash { font-family: "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+.hash { word-break: break-all; font-weight: 600; }
+.kpis { display: flex; flex-wrap: wrap; gap: 10px; }
+.kpi { border: 1px solid #d5dde8; border-radius: 6px; padding: 8px 14px; min-width: 110px; }
+.kpi b { display: block; font-size: 20px; }
+.kpi span { font-size: 12px; color: #556274; text-transform: uppercase; letter-spacing: .03em; }
+.kpi.alert { border-color: #d9a066; background: #fff6ec; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid #e3e8ef; vertical-align: top; }
+th { background: #eef2f7; position: sticky; top: 0; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bar { display: inline-block; width: 160px; height: 8px; background: #e8edf3; border-radius: 4px; overflow: hidden; vertical-align: middle; }
+.fill { display: block; height: 100%; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+dl.glossary dt { font-weight: 600; margin-top: 10px; }
+dl.glossary dd { margin: 2px 0 0; }
+footer { margin-top: 40px; font-size: 12px; color: #6b7686; }
+@media print { body { padding: 0; } th { position: static; } h2 { break-after: avoid; } tr { break-inside: avoid; } }
+</style>
+</head>
+<body>
+<header>
+<h1>Synthèse du relevé LUNAR</h1>
+<p class="sub">Exportée le 13 octobre 2026 à 22:59:59 (<code>2026-10-14T03:59:59.999Z</code>) par LUNAR 0.1.0. Relevé complet : les filtres d'affichage de LUNAR ne s'appliquent pas à cette page.</p>
+<dl class="context"><dt>Site</dt><dd>Base navale</dd><dt>Capteur</dt><dd>Poste relevé n°2</dd><dt>Interface</dt><dd>enp0s31f6</dd><dt>Type de liaison</dt><dd>ETHERNET</dd><dt>Période observée</dt><dd>du 01/10/2026 18:59:59 au 13/10/2026 23:00:00, soit 12 j 4 h (UTC : 2026-10-01T23:59:59.999999Z à 2026-10-14T04:00:00.000001Z)</dd></dl>
+</header>
+
+<section class="fingerprint" aria-label="Matrice d'origine">
+<p><strong>Matrice d'origine :</strong> <code>releve.csv</code> (987 octets), exportée en même temps que cette page.</p>
+<p><strong>Empreinte SHA-256 :</strong> <span class="hash">ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff</span></p>
+<p class="muted">Pour vérifier que cette page décrit bien ce fichier, calculer son empreinte et la comparer à celle-ci : <code>sha256sum releve.csv</code> sous Linux, <code>Get-FileHash -Algorithm SHA256 releve.csv</code> sous Windows (PowerShell). Si elles diffèrent, la page et le fichier ne correspondent pas.</p>
+</section>
+
+<h2>Indicateurs</h2>
+<div class="kpis">
+<div class="kpi"><b>5</b><span>Endpoints</span></div>
+<div class="kpi"><b>6</b><span>Flux</span></div>
+<div class="kpi"><b>3 123 477</b><span>Paquets</span></div>
+<div class="kpi"><b>10.0 Tio</b><span>Volume</span></div>
+<div class="kpi"><b>6</b><span>Protocoles</span></div>
+<div class="kpi"><b>0</b><span>IP dupliquées</span></div>
+<div class="kpi alert"><b>1</b><span>Endpoints sans label</span></div>
+<div class="kpi"><b>12 j 4 h</b><span>Durée du relevé</span></div>
+</div>
+
+<h2>Interne / Internet</h2>
+<p class="muted">Un flux est « Internet » quand l'une de ses extrémités est une adresse IP publique.</p>
+<table>
+<thead><tr><th></th><th class="num">Flux</th><th class="num">Volume</th><th class="num">Part du volume</th><th></th></tr></thead>
+<tbody>
+<tr><td>Interne</td><td class="num">3</td><td class="num">3.0 Kio</td><td class="num">&lt; 0,1 %</td><td><span class="bar"><span class="fill" style="width:1%;background:#2f6fb0"></span></span></td></tr>
+<tr><td>Internet</td><td class="num">3</td><td class="num">10.0 Tio</td><td class="num">100 %</td><td><span class="bar"><span class="fill" style="width:100%;background:#2f6fb0"></span></span></td></tr>
+</tbody>
+</table>
+
+<h2>Chiffrement (indication)</h2>
+<p class="muted">Tirée du seul protocole reconnu par LUNAR, jamais du numéro de port : un flux dont le contenu n'est pas reconnu (TCP ou UDP seul) reste « Indéterminé ».</p>
+<table>
+<thead><tr><th></th><th class="num">Flux</th><th class="num">Volume</th><th class="num">Part du volume</th><th></th></tr></thead>
+<tbody>
+<tr><td>Chiffré</td><td class="num">2</td><td class="num">5.0 Tio</td><td class="num">50 %</td><td><span class="bar"><span class="fill" style="width:50%;background:#2f6fb0"></span></span></td></tr>
+<tr><td>En clair</td><td class="num">3</td><td class="num">3.0 Kio</td><td class="num">&lt; 0,1 %</td><td><span class="bar"><span class="fill" style="width:1%;background:#2f6fb0"></span></span></td></tr>
+<tr><td>Indéterminé</td><td class="num">1</td><td class="num">5.0 Tio</td><td class="num">50 %</td><td><span class="bar"><span class="fill" style="width:50%;background:#2f6fb0"></span></span></td></tr>
+</tbody>
+</table>
+
+<h2>Usages (indication)</h2>
+<p class="muted">Tirés d'une table fixe qui range chaque protocole reconnu dans une catégorie ; « Non classé » quand le protocole ne dit rien de l'usage (une session TLS, par exemple).</p>
+<table>
+<thead><tr><th></th><th class="num">Flux</th><th class="num">Volume</th><th class="num">Part du volume</th><th></th></tr></thead>
+<tbody>
+<tr><td>Tunnels et VPN</td><td class="num">2</td><td class="num">5.0 Tio</td><td class="num">50 %</td><td><span class="bar"><span class="fill" style="width:50%;background:#2f6fb0"></span></span></td></tr>
+<tr><td>Non classé</td><td class="num">1</td><td class="num">5.0 Tio</td><td class="num">50 %</td><td><span class="bar"><span class="fill" style="width:50%;background:#2f6fb0"></span></span></td></tr>
+<tr><td>Industriel et opérationnel</td><td class="num">1</td><td class="num">1.5 Kio</td><td class="num">&lt; 0,1 %</td><td><span class="bar"><span class="fill" style="width:1%;background:#2f6fb0"></span></span></td></tr>
+<tr><td>Web</td><td class="num">1</td><td class="num">1.5 Kio</td><td class="num">&lt; 0,1 %</td><td><span class="bar"><span class="fill" style="width:1%;background:#2f6fb0"></span></span></td></tr>
+<tr><td>Infrastructure réseau</td><td class="num">1</td><td class="num">64 o</td><td class="num">&lt; 0,1 %</td><td><span class="bar"><span class="fill" style="width:1%;background:#2f6fb0"></span></span></td></tr>
+</tbody>
+</table>
+
+<h2>Répartition par protocole</h2>
+<table>
+<thead><tr><th>Protocole</th><th class="num">Flux</th><th class="num">Paquets</th><th class="num">Volume</th><th class="num">Part du volume</th><th></th></tr></thead>
+<tbody>
+<tr><td><span class="swatch" style="background:#22D3EE"></span>CAPWAP</td><td class="num">1</td><td class="num">1 000 000</td><td class="num">5.0 Tio</td><td class="num">50 %</td><td><span class="bar"><span class="fill" style="width:100%;background:#22D3EE"></span></span></td></tr>
+<tr><td><span class="swatch" style="background:#06B6D4"></span>QUIC</td><td class="num">1</td><td class="num">2 000 000</td><td class="num">5.0 Tio</td><td class="num">50 %</td><td><span class="bar"><span class="fill" style="width:100%;background:#06B6D4"></span></span></td></tr>
+<tr><td><span class="swatch" style="background:#2DD4BF"></span>WireGuard</td><td class="num">1</td><td class="num">123 456</td><td class="num">3.5 Gio</td><td class="num">&lt; 0,1 %</td><td><span class="bar"><span class="fill" style="width:1%;background:#2DD4BF"></span></span></td></tr>
+<tr><td><span class="swatch" style="background:#A78BFA"></span>GOOSE</td><td class="num">1</td><td class="num">10</td><td class="num">1.5 Kio</td><td class="num">&lt; 0,1 %</td><td><span class="bar"><span class="fill" style="width:1%;background:#A78BFA"></span></span></td></tr>
+<tr><td><span class="swatch" style="background:#0EA5E9"></span>HTTP</td><td class="num">1</td><td class="num">10</td><td class="num">1.5 Kio</td><td class="num">&lt; 0,1 %</td><td><span class="bar"><span class="fill" style="width:1%;background:#0EA5E9"></span></span></td></tr>
+<tr><td><span class="swatch" style="background:#FB7185"></span>ICMPv6</td><td class="num">1</td><td class="num">1</td><td class="num">64 o</td><td class="num">&lt; 0,1 %</td><td><span class="bar"><span class="fill" style="width:1%;background:#FB7185"></span></span></td></tr>
+</tbody>
+</table>
+
+<h2>Endpoints les plus actifs</h2>
+<table>
+<thead><tr><th>Endpoint</th><th>IP</th><th class="num">Flux</th><th class="num">Volume</th><th></th></tr></thead>
+<tbody>
+<tr><td>Elan</td><td>1.1.1.1</td><td class="num">3</td><td class="num">10.0 Tio</td><td><span class="bar"><span class="fill" style="width:100%;background:#2f6fb0"></span></span></td></tr>
+<tr><td>Doublon</td><td>172.16.0.2</td><td class="num">3</td><td class="num">5.0 Tio</td><td><span class="bar"><span class="fill" style="width:50%;background:#2f6fb0"></span></span></td></tr>
+<tr><td>Doublon</td><td>172.16.0.1</td><td class="num">2</td><td class="num">5.0 Tio</td><td><span class="bar"><span class="fill" style="width:50%;background:#2f6fb0"></span></span></td></tr>
+<tr><td>élan</td><td>172.16.0.3</td><td class="num">3</td><td class="num">3.5 Gio</td><td><span class="bar"><span class="fill" style="width:1%;background:#2f6fb0"></span></span></td></tr>
+<tr><td>fe80::1</td><td>fe80::1</td><td class="num">1</td><td class="num">64 o</td><td><span class="bar"><span class="fill" style="width:1%;background:#2f6fb0"></span></span></td></tr>
+</tbody>
+</table>
+
+<h2>Flux les plus volumineux</h2>
+<table>
+<thead><tr><th>Source</th><th></th><th>Destination</th><th>Protocole</th><th class="num">Paquets</th><th class="num">Volume</th><th></th></tr></thead>
+<tbody>
+<tr><td>Doublon</td><td>↔</td><td>Elan</td><td>CAPWAP</td><td class="num">1 000 000</td><td class="num">5.0 Tio</td><td><span class="bar"><span class="fill" style="width:100%;background:#22D3EE"></span></span></td></tr>
+<tr><td>Doublon</td><td>↔</td><td>Elan</td><td>QUIC</td><td class="num">2 000 000</td><td class="num">5.0 Tio</td><td><span class="bar"><span class="fill" style="width:100%;background:#06B6D4"></span></span></td></tr>
+<tr><td>élan</td><td>↔</td><td>Elan</td><td>WireGuard</td><td class="num">123 456</td><td class="num">3.5 Gio</td><td><span class="bar"><span class="fill" style="width:1%;background:#2DD4BF"></span></span></td></tr>
+<tr><td>Doublon</td><td>↔</td><td>Doublon</td><td>HTTP</td><td class="num">10</td><td class="num">1.5 Kio</td><td><span class="bar"><span class="fill" style="width:1%;background:#0EA5E9"></span></span></td></tr>
+<tr><td>Doublon</td><td>→</td><td>élan</td><td>GOOSE</td><td class="num">10</td><td class="num">1.5 Kio</td><td><span class="bar"><span class="fill" style="width:1%;background:#A78BFA"></span></span></td></tr>
+<tr><td>élan</td><td>→</td><td>fe80::1</td><td>ICMPv6</td><td class="num">1</td><td class="num">64 o</td><td><span class="bar"><span class="fill" style="width:1%;background:#FB7185"></span></span></td></tr>
+</tbody>
+</table>
+
+<h2>Endpoints (5)</h2>
+<table>
+<thead><tr><th>Endpoint</th><th>IP</th><th>MAC</th><th>VLAN</th><th>Label</th><th class="num">Flux</th><th class="num">Sortants</th><th class="num">Entrants</th><th class="num">Paquets</th><th class="num">Volume</th></tr></thead>
+<tbody>
+<tr><td>Elan</td><td>1.1.1.1</td><td>—</td><td>—</td><td>Elan</td><td class="num">3</td><td class="num">3</td><td class="num">3</td><td class="num">3 123 456</td><td class="num">10.0 Tio</td></tr>
+<tr><td>Doublon</td><td>172.16.0.2</td><td>00:1b:21:00:00:02</td><td>100</td><td>Doublon</td><td class="num">3</td><td class="num">3</td><td class="num">2</td><td class="num">2 000 020</td><td class="num">5.0 Tio</td></tr>
+<tr><td>Doublon</td><td>172.16.0.1</td><td>00:1b:21:00:00:01</td><td>100</td><td>Doublon</td><td class="num">2</td><td class="num">2</td><td class="num">2</td><td class="num">1 000 010</td><td class="num">5.0 Tio</td></tr>
+<tr><td>élan</td><td>172.16.0.3</td><td>dc:a6:32:00:00:03</td><td>100</td><td>élan</td><td class="num">3</td><td class="num">2</td><td class="num">2</td><td class="num">123 467</td><td class="num">3.5 Gio</td></tr>
+<tr><td>fe80::1</td><td>fe80::1</td><td>—</td><td>—</td><td>—</td><td class="num">1</td><td class="num">0</td><td class="num">1</td><td class="num">1</td><td class="num">64 o</td></tr>
+</tbody>
+</table>
+
+<h2>Flux (6)</h2>
+<table>
+<thead><tr><th>Source</th><th>Destination</th><th>Protocole</th><th>Ports</th><th>Sens</th><th class="num">Paquets</th><th class="num">Volume</th></tr></thead>
+<tbody>
+<tr><td>Doublon</td><td>Elan</td><td>CAPWAP</td><td>5246</td><td>↔</td><td class="num">1 000 000</td><td class="num">5.0 Tio</td></tr>
+<tr><td>Doublon</td><td>Elan</td><td>QUIC</td><td>443</td><td>↔</td><td class="num">2 000 000</td><td class="num">5.0 Tio</td></tr>
+<tr><td>élan</td><td>Elan</td><td>WireGuard</td><td>51820</td><td>↔</td><td class="num">123 456</td><td class="num">3.5 Gio</td></tr>
+<tr><td>Doublon</td><td>Doublon</td><td>HTTP</td><td>80, 8080</td><td>↔</td><td class="num">10</td><td class="num">1.5 Kio</td></tr>
+<tr><td>Doublon</td><td>élan</td><td>GOOSE</td><td>—</td><td>→</td><td class="num">10</td><td class="num">1.5 Kio</td></tr>
+<tr><td>élan</td><td>fe80::1</td><td>ICMPv6</td><td>—</td><td>→</td><td class="num">1</td><td class="num">64 o</td></tr>
+</tbody>
+</table>
+
+<h2>Indications (9)</h2>
+<p class="muted">Tirées de tables fixes embarquées dans LUNAR (ports bien connus, préfixes de constructeurs, adresses notoires). Ce sont des indications, pas des conclusions : elles sont à confirmer par l'analyste.</p>
+<table>
+<thead><tr><th>Type</th><th>Observé</th><th>Indication</th><th class="num">Occurrences</th></tr></thead>
+<tbody>
+<tr><td>Fabricant (OUI)</td><td>00:1B:21</td><td>Intel</td><td class="num">2</td></tr>
+<tr><td>Adresse connue</td><td>1.1.1.1</td><td>Cloudflare DNS</td><td class="num">1</td></tr>
+<tr><td>Adresse connue</td><td>33:33:00:00:00:01</td><td>Multicast IPv6</td><td class="num">1</td></tr>
+<tr><td>Port</td><td>443</td><td>HTTPS (TLS)</td><td class="num">1</td></tr>
+<tr><td>Port</td><td>51820</td><td>WireGuard</td><td class="num">1</td></tr>
+<tr><td>Port</td><td>80</td><td>HTTP</td><td class="num">1</td></tr>
+<tr><td>Port</td><td>8080</td><td>HTTP (proxy/alt)</td><td class="num">1</td></tr>
+<tr><td>Fabricant (OUI)</td><td>DC:A6:32</td><td>Raspberry Pi</td><td class="num">1</td></tr>
+<tr><td>Adresse connue</td><td>fe80::1</td><td>Lien-local (IPv6)</td><td class="num">1</td></tr>
+</tbody>
+</table>
+
+<h2>Glossaire des termes présents</h2>
+<dl class="glossary"><dt>GOOSE <span class="muted">· Liaison</span></dt><dd>Generic Object Oriented Substation Event (IEC 61850-8-1) : les événements d&#39;un poste électrique (déclenchements, positions d&#39;organes) publiés en multicast directement sur Ethernet (EtherType 0x88B8), souvent sous une étiquette VLAN, sans IP ni transport. Temps réel : quelques millisecondes exigées entre la détection et la réception.</dd>
+<dt>VLAN (802.1Q) <span class="muted">· Liaison</span></dt><dd>Réseau local virtuel : segmente un réseau physique en domaines de diffusion isolés. Marqué dans la trame par une étiquette 802.1Q portant l&#39;identifiant de VLAN.</dd>
+<dt>ICMPv6 <span class="muted">· Réseau</span></dt><dd>Version IPv6 d&#39;ICMP. Assure aussi la découverte de voisins (NDP), l&#39;équivalent IPv6 de l&#39;ARP.</dd>
+<dt>QUIC <span class="muted">· Transport</span></dt><dd>Transport moderne sur UDP, chiffré par défaut (TLS 1.3 intégré) et à faible latence. Base de HTTP/3.</dd>
+<dt>HTTP <span class="muted">· Application IT</span></dt><dd>HyperText Transfer Protocol : protocole du Web (port 80), requêtes/réponses en clair.</dd>
+<dt>WireGuard <span class="muted">· Application IT</span></dt><dd>Tunnel VPN moderne sur UDP (port 51820 par défaut) : quatre types de messages (initiation, réponse, cookie, données) à l&#39;en-tête fixe. Tout le contenu est chiffré ; LUNAR ne voit que les pairs et le volume. Utilisé tel quel ou derrière Tailscale, Mullvad, NordVPN…</dd>
+<dt>Tunnel / CAPWAP <span class="muted">· Concept</span></dt><dd>Encapsulation d&#39;un trafic dans un autre (ex. CAPWAP pour les bornes Wi-Fi). LUNAR décapsule et relie père/fils par un identifiant de tunnel.</dd></dl>
+
+<footer>Document produit hors ligne par LUNAR 0.1.0 à partir des seules données du relevé. Page statique : elle ne contient aucun script et ne charge aucune ressource.</footer>
+</body>
+</html>

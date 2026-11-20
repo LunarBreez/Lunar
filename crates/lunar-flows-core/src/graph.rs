@@ -1,0 +1,1777 @@
+//! Graphe réseau : nœuds (équipements identifiés par (VLAN, IP) ou
+//! (VLAN, MAC)) et arêtes (conversations par protocole), construit
+//! incrémentalement pendant la capture ou l'import et synchronisé avec
+//! l'interface par `GraphUpdate`.
+
+use packet_parser::{IpType, owned::PacketFlowOwned};
+use serde::Serialize;
+use std::collections::{BTreeSet, HashMap};
+
+use crate::link::LinkView;
+use crate::matrix::FlowMatrix;
+use crate::matrix::{GATEWAY_IP_THRESHOLD, is_countable_unicast_ip, is_non_unicast_mac};
+
+/// Graphe complet : l'état de référence côté moteur, dont l'interface
+/// reçoit soit des updates incrémentales, soit un snapshot entier.
+#[derive(Serialize, Default, Debug)]
+pub struct GraphData {
+    /// Nœuds par clé d'identité `(VLAN, IP)` ou `(VLAN, MAC)`
+    /// (cf. `l3_node_key` / `l2_node_key`).
+    pub nodes: HashMap<String, Node>,
+    /// Arêtes par clé `a_id:b_id:protocole`, canonique (`a_id <= b_id`).
+    pub edges: HashMap<String, Edge>,
+    /// Index IP -> clés de nœuds L3 : détection « même IP sur plusieurs
+    /// VLAN » (anomalie duplicate_ip) sans balayage du graphe.
+    #[serde(skip)]
+    ip_index: HashMap<String, BTreeSet<String>>,
+    /// Index MAC unicast -> clés de nœuds L3 qui la portent : détection
+    /// « MAC partagée par de nombreuses IP » (passerelle probable)
+    /// sans balayage du graphe.
+    #[serde(skip)]
+    mac_index: HashMap<String, BTreeSet<String>>,
+}
+
+/// Clé d'identité d'un nœud L3 : le VLAN 802.1Q fait partie de l'identité
+/// observée — la même IP sur deux VLAN est deux actifs distincts.
+/// Hors trame taguée, la clé reste l'IP nue (continuité avec les relevés
+/// existants).
+fn l3_node_key(vlan_id: Option<u16>, ip: &str) -> String {
+    match vlan_id {
+        None => ip.to_string(),
+        Some(id) => format!("vlan{id}:{ip}"),
+    }
+}
+
+/// Clé d'identité d'un nœud L2 (repli sans IP valide) : (VLAN, MAC).
+fn l2_node_key(vlan_id: Option<u16>, mac: &str) -> String {
+    match vlan_id {
+        None => format!("mac:{mac}"),
+        Some(id) => format!("vlan{id}:mac:{mac}"),
+    }
+}
+
+/// Identifiant stable d'un nœud ou d'une arête : hash FNV-1a de sa clé
+/// d'identité (le même hachage, stable entre builds, que `encap_id`).
+/// Remplace les compteurs globaux : le même relevé rouvert redonne
+/// les mêmes ids — prérequis des snapshots déterministes et de la future
+/// corrélation d'actifs.
+fn stable_id(key: &str) -> String {
+    format!("{:016x}", crate::packet::fnv1a(key.as_bytes()))
+}
+
+/// Mise à jour incrémentale envoyée à l'interface. Chaque payload est le
+/// snapshot complet du nœud ou de l'arête (jamais un delta) : rejouer la
+/// dernière reçue suffit. Sérialisée en `{ type, payload }`, le type
+/// étant le nom camelCase attendu par le front.
+#[derive(Clone, Serialize, Debug)]
+#[serde(tag = "type", content = "payload")]
+pub enum GraphUpdate {
+    /// Nœud vu pour la première fois.
+    #[serde(rename = "nodeAdded")]
+    NewNode(Node),
+    /// Nœud existant modifié (label, MAC supplémentaire, anomalie levée).
+    #[serde(rename = "nodeUpdated")]
+    NodeUpdated(Node),
+    /// Arête `{A,B,proto}` vue pour la première fois.
+    #[serde(rename = "edgeAdded")]
+    NewEdge(Edge),
+    /// Arête existante modifiée (compteurs, sens, ports, tunnels).
+    #[serde(rename = "edgeUpdated")]
+    EdgeUpdated(Edge),
+}
+
+/// Accumulateur d'updates graphe avec coalescence par entité : au sein d'une
+/// fenêtre de batch, une seule entrée par nœud/arête (la dernière valeur gagne,
+/// le variant `New*` d'origine est conservé). Les payloads étant des snapshots
+/// complets, aucune information n'est perdue.
+#[derive(Default)]
+pub struct GraphUpdateBatch {
+    /// Updates dans l'ordre de première arrivée de chaque entité.
+    updates: Vec<GraphUpdate>,
+    /// Id de nœud → position de son entrée dans `updates`.
+    node_index: HashMap<String, usize>,
+    /// Id d'arête → position de son entrée dans `updates`.
+    edge_index: HashMap<String, usize>,
+}
+
+impl GraphUpdateBatch {
+    /// Ajoute une update au batch. Une entité déjà présente voit son payload
+    /// remplacé sur place (sa position et son variant `New*` éventuel sont
+    /// conservés) ; sinon l'update est ajoutée en fin de batch.
+    pub fn push(&mut self, update: GraphUpdate) {
+        match update {
+            GraphUpdate::NewNode(node) => self.upsert_node(node, true),
+            GraphUpdate::NodeUpdated(node) => self.upsert_node(node, false),
+            GraphUpdate::NewEdge(edge) => self.upsert_edge(edge, true),
+            GraphUpdate::EdgeUpdated(edge) => self.upsert_edge(edge, false),
+        }
+    }
+
+    /// Coalescence d'un nœud : remplace le payload de l'entrée existante ou
+    /// ajoute une entrée `NewNode`/`NodeUpdated` selon `is_new`.
+    fn upsert_node(&mut self, node: Node, is_new: bool) {
+        match self.node_index.get(&node.id) {
+            Some(&index) => {
+                if let GraphUpdate::NewNode(existing) | GraphUpdate::NodeUpdated(existing) =
+                    &mut self.updates[index]
+                {
+                    *existing = node;
+                }
+            }
+            None => {
+                self.node_index.insert(node.id.clone(), self.updates.len());
+                self.updates.push(if is_new {
+                    GraphUpdate::NewNode(node)
+                } else {
+                    GraphUpdate::NodeUpdated(node)
+                });
+            }
+        }
+    }
+
+    /// Coalescence d'une arête : remplace le payload de l'entrée existante ou
+    /// ajoute une entrée `NewEdge`/`EdgeUpdated` selon `is_new`.
+    fn upsert_edge(&mut self, edge: Edge, is_new: bool) {
+        match self.edge_index.get(&edge.id) {
+            Some(&index) => {
+                if let GraphUpdate::NewEdge(existing) | GraphUpdate::EdgeUpdated(existing) =
+                    &mut self.updates[index]
+                {
+                    *existing = edge;
+                }
+            }
+            None => {
+                self.edge_index.insert(edge.id.clone(), self.updates.len());
+                self.updates.push(if is_new {
+                    GraphUpdate::NewEdge(edge)
+                } else {
+                    GraphUpdate::EdgeUpdated(edge)
+                });
+            }
+        }
+    }
+
+    /// Vide le batch et retourne les updates coalescées, dans l'ordre d'arrivée.
+    pub fn take(&mut self) -> Vec<GraphUpdate> {
+        self.node_index.clear();
+        self.edge_index.clear();
+        std::mem::take(&mut self.updates)
+    }
+
+    /// Nombre d'entités distinctes en attente (une entrée par nœud/arête).
+    pub fn len(&self) -> usize {
+        self.updates.len()
+    }
+
+    /// Vrai si aucune update n'est en attente.
+    pub fn is_empty(&self) -> bool {
+        self.updates.is_empty()
+    }
+}
+
+/// Nœud du graphe : un équipement identifié par (VLAN, IP), ou par
+/// (VLAN, MAC) quand aucune IP valide n'est observée. Snapshot complet
+/// sérialisé tel quel vers l'interface.
+#[derive(Serialize, Clone, Debug)]
+pub struct Node {
+    /// Id stable dérivé de la clé d'identité (hash FNV-1a, cf. `stable_id`) :
+    /// identique d'une exécution à l'autre pour le même relevé.
+    pub id: String,
+    /// Libellé affiché : l'IP du nœud, ou sa MAC pour un nœud L2.
+    pub name: String,
+    /// Couleur de rendu en hexadécimal CSS (`#RRGGBB`), choisie d'après le
+    /// type d'IP (privée, publique, multicast…) ; cyan pour un nœud L2.
+    pub color: String,
+    /// Première MAC observée pour ce nœud (clé de labellisation historique).
+    pub mac: String,
+    /// Toutes les MAC unicast observées pour cette IP, première comprise.
+    /// Plusieurs entrées = anomalie à investiguer (IP partagée, VRRP,
+    /// usurpation ARP…) : le front la signale visuellement.
+    pub macs: Vec<String>,
+    /// IP du nœud sous forme textuelle ; vide pour un nœud L2 (MAC seule).
+    pub ip: String,
+    /// VLAN 802.1Q du nœud (`None` hors trame taguée) : fait partie de la
+    /// clé d'identité — la même IP sur deux VLAN est deux nœuds.
+    pub vlan_id: Option<u16>,
+    /// Vrai quand la même IP est portée par plusieurs nœuds (VLAN
+    /// différents) : anomalie signalée visuellement, jamais fusionnée.
+    pub duplicate_ip: bool,
+    /// Vrai quand la MAC de ce nœud porte au moins
+    /// [`GATEWAY_IP_THRESHOLD`] IP unicast distinctes : passerelle probable
+    /// (routeur, pare-feu, VRRP, NAT). L'IP du nœud est alors vraisemblablement
+    /// **derrière** cette MAC, pas l'équipement qui la porte ; un label posé
+    /// sur la MAC seule ne lui est plus appliqué.
+    pub gateway_mac: bool,
+    /// Label opérateur (nom de l'équipement) ; `None` tant qu'aucun n'a été
+    /// posé sur l'endpoint `(mac, ip)`.
+    pub label: Option<String>,
+}
+
+impl Node {
+    /// Construit un nœud à partir de sa clé d'identité : l'id est le hash
+    /// stable de `key`, `macs` ne retient la MAC que si elle est unicast et
+    /// non vide, les anomalies (`duplicate_ip`, `gateway_mac`) partent à faux
+    /// et sont levées ensuite par le graphe.
+    pub fn new(
+        key: &str,
+        name: String,
+        mac: String,
+        color: &'static str,
+        ip: String,
+        vlan_id: Option<u16>,
+        label: Option<String>,
+    ) -> Self {
+        let macs = if mac.is_empty() || is_non_unicast_mac(&mac) {
+            Vec::new()
+        } else {
+            vec![mac.clone()]
+        };
+        Self {
+            id: stable_id(key),
+            name,
+            color: color.to_string(),
+            mac,
+            macs,
+            ip,
+            vlan_id,
+            duplicate_ip: false,
+            gateway_mac: false,
+            label,
+        }
+    }
+}
+
+/// Plafond de ports « service » retenus par arête : au-delà (scan de ports),
+/// la liste n'apporte plus rien à la lecture du graphe et croîtrait sans
+/// borne. La matrice de flux, elle, garde le détail exact.
+const MAX_EDGE_PORTS: usize = 16;
+
+/// Début de la plage de ports dynamiques/éphémères (IANA 49152–65535) : les
+/// clients y prennent leurs ports source. Un « service » dans cette plage
+/// est presque toujours un éphémère (P2P, RTP, réponse) — le lister rendrait
+/// l'arête illisible sans rien dire du service.
+const DYNAMIC_PORT_START: u16 = 49152;
+
+/// Port « service » d'un paquet : le plus petit des deux ports présents (le
+/// service écoute sur le port bas, le client répond depuis un éphémère
+/// haut). En bidirectionnel, la réponse `443 → 50123` redonne bien 443 au
+/// lieu d'accumuler l'éphémère du client sur l'arête.
+fn service_port(source_port: Option<u16>, destination_port: Option<u16>) -> Option<u16> {
+    match (source_port, destination_port) {
+        (Some(s), Some(d)) => Some(s.min(d)),
+        (Some(p), None) | (None, Some(p)) => Some(p),
+        (None, None) => None,
+    }
+}
+
+/// Arête du graphe : la conversation `{A,B,proto}` entre deux nœuds,
+/// non orientée (les deux sens s'y agrègent) mais stockée dans le sens
+/// du premier paquet observé. Snapshot complet sérialisé en
+/// camelCase.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Edge {
+    /// Id stable dérivé de la clé non orientée `{A,B,proto}`.
+    pub id: String,
+    /// Id du nœud émetteur du premier paquet observé.
+    pub source: String,
+    /// Id du nœud destinataire du premier paquet observé.
+    pub target: String,
+    /// Protocole affiché (« DNS », « TCP », « IPv6 »…) : le plus haut
+    /// détecté (L7, sinon L4, L3, L2).
+    pub label: String,
+    /// Port source du premier paquet observé ; `None` en L2 ou sans
+    /// transport.
+    pub source_port: Option<u16>,
+    /// Port destination du premier paquet observé ; `None` en L2 ou sans
+    /// transport.
+    pub destination_port: Option<u16>,
+    /// Ports « service » des paquets agrégés sur cette arête (triés, plafonnés
+    /// à MAX_EDGE_PORTS) : une arête {A,B,proto} porte souvent plusieurs
+    /// services distincts, que le seul premier couple
+    /// source_port/destination_port masquait. Les ports de la plage
+    /// dynamique (>= 49152) n'y entrent pas : ils lèvent `has_dynamic_ports`.
+    pub ports: BTreeSet<u16>,
+    /// Vrai si du trafic sur ports exclusivement dynamiques/éphémères a été
+    /// observé (P2P, RTP…) : rendu « … » côté front, détail dans la matrice.
+    pub has_dynamic_ports: bool,
+    /// Vrai dès qu'un paquet a été observé dans le sens inverse du premier.
+    pub bidir: bool,
+    /// Paquets cumulés sur cette arête, tous sens confondus.
+    pub count: u64,
+    /// Octets cumulés sur cette arête, tous sens confondus (addition
+    /// saturante).
+    pub total_bytes: u64,
+    /// Tunnels auxquels ce flux participe (hash de paire en hex) :
+    /// l'arête externe CAPWAP porte l'id de son tunnel, les arêtes internes
+    /// celui des tunnels qui les transportent. Sert à surligner la parenté
+    /// père/fils dans le graphe. Trié, sans doublon.
+    pub encap_ids: Vec<String>,
+}
+
+impl Edge {
+    /// `key` : clé non orientée `{A,B,proto}` (cf. `undirected_edge_key`) dont
+    /// dérive l'id stable — les compteurs globaux ont disparu.
+    pub fn new(key: &str, source: String, target: String) -> Self {
+        Self {
+            id: stable_id(key),
+            source,
+            target,
+            label: String::new(),
+            source_port: None,
+            destination_port: None,
+            ports: BTreeSet::new(),
+            has_dynamic_ports: false,
+            bidir: false,
+            count: 0,
+            total_bytes: 0,
+            encap_ids: Vec::new(),
+        }
+    }
+
+    /// Fixe les compteurs initiaux (paquets, octets) d'une arête en cours de
+    /// construction, sans addition.
+    pub fn with_traffic(mut self, count: u64, total_bytes: u64) -> Self {
+        self.count = count;
+        self.total_bytes = total_bytes;
+        self
+    }
+
+    /// Fixe le protocole affiché d'une arête en cours de construction.
+    pub fn with_label(mut self, label: String) -> Self {
+        self.label = label;
+        self
+    }
+
+    /// Fixe le couple de ports du premier paquet et enregistre son port
+    /// « service » dans la liste (ou lève `has_dynamic_ports`).
+    pub fn with_ports(mut self, source_port: Option<u16>, destination_port: Option<u16>) -> Self {
+        self.source_port = source_port;
+        self.destination_port = destination_port;
+        self.record_service_port(source_port, destination_port);
+        self
+    }
+
+    /// Enregistre le port « service » d'un paquet agrégé sur cette arête
+    /// (voir [`service_port`]). Retourne vrai si l'affichage doit être
+    /// rafraîchi. Liste plafonnée à [`MAX_EDGE_PORTS`] ; un port de la plage
+    /// dynamique n'est pas listé, il lève `has_dynamic_ports` une fois.
+    fn record_service_port(
+        &mut self,
+        source_port: Option<u16>,
+        destination_port: Option<u16>,
+    ) -> bool {
+        let Some(port) = service_port(source_port, destination_port) else {
+            return false;
+        };
+        if port >= DYNAMIC_PORT_START {
+            return !std::mem::replace(&mut self.has_dynamic_ports, true);
+        }
+        if self.ports.len() < MAX_EDGE_PORTS || self.ports.contains(&port) {
+            self.ports.insert(port)
+        } else {
+            false
+        }
+    }
+}
+
+impl GraphData {
+    /// Graphe vide, index compris ; équivalent de `Default`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Reconstruit le graphe relationnel d'une matrice batch. Les flux sont
+    /// triés avant insertion afin que leur ordre reste stable malgré le
+    /// `HashMap` de la matrice.
+    pub fn from_flow_matrix(matrix: &FlowMatrix) -> Self {
+        Self::from_flow_matrix_filtered(matrix, None)
+    }
+
+    /// Variante filtrée sur un protocole de n'importe quelle couche. Ainsi,
+    /// `TCP` conserve aussi une relation affichée comme HTTP/TLS parce que le
+    /// graphe privilégie normalement le protocole applicatif dans son label.
+    pub fn from_flow_matrix_filtered(matrix: &FlowMatrix, protocol: Option<&str>) -> Self {
+        let mut flows: Vec<_> = matrix.matrix.iter().collect();
+        flows.sort_by_cached_key(|(flow, _)| format!("{flow:?}"));
+
+        let mut graph = Self::new();
+        for (flow, entries) in flows {
+            if protocol.is_some_and(|protocol| !flow_uses_protocol(flow, protocol)) {
+                continue;
+            }
+            let packets = entries.iter().map(|(_, stats)| stats.count).sum();
+            let bytes = entries.iter().fold(0u64, |total, (_, stats)| {
+                total.saturating_add(stats.total_bytes)
+            });
+            let mut encap_ids: Vec<u64> = entries.iter().filter_map(|(id, _)| *id).collect();
+            encap_ids.sort_unstable();
+            encap_ids.dedup();
+
+            let link = LinkView::of(&flow.data_link);
+            let source_ip = flow
+                .internet
+                .as_ref()
+                .and_then(|internet| internet.source_ip)
+                .map(|ip| ip.to_string())
+                .unwrap_or_default();
+            let destination_ip = flow
+                .internet
+                .as_ref()
+                .and_then(|internet| internet.destination_ip)
+                .map(|ip| ip.to_string())
+                .unwrap_or_default();
+
+            graph.add_packet_flow(
+                flow,
+                matrix.get_label(&link.source_mac, &source_ip),
+                matrix.get_label(&link.destination_mac, &destination_ip),
+                packets,
+                bytes,
+                &encap_ids,
+            );
+        }
+        graph
+    }
+
+    /// Agrège un flux (ou un paquet) dans le graphe et retourne les updates
+    /// à transmettre à l'interface, dans l'ordre où elles ont été produites.
+    /// Les deux extrémités sont des nœuds L3 `(vlan, ip)` si les deux IP
+    /// sont valides, sinon des nœuds L2 `(vlan, mac)` sans ports. `packets`
+    /// et `bytes` sont ajoutés aux compteurs de l'arête ; `encap_ids` sont
+    /// les tunnels auxquels le flux participe ; les labels sont appliqués
+    /// aux nœuds quand ils sont fournis.
+    pub fn add_packet_flow(
+        &mut self,
+        packet: &PacketFlowOwned,
+        source_label: Option<String>,
+        destination_label: Option<String>,
+        packets: u64,
+        bytes: u64,
+        encap_ids: &[u64],
+    ) -> Vec<GraphUpdate> {
+        let mut updates = Vec::new();
+        let link = LinkView::of(&packet.data_link);
+
+        // ===============================
+        // 1) Chemin L3 (avec IP) si possible
+        // ===============================
+        if let Some(internet) = packet.internet.as_ref()
+            && let (Some(src_ip), Some(dst_ip)) = (internet.source_ip, internet.destination_ip)
+        {
+            let src_type = internet.ip_source_type.as_ref();
+            let dst_type = internet.ip_destination_type.as_ref();
+            if is_valid_ip(src_type) && is_valid_ip(dst_type) {
+                let src_node_id = self.ensure_l3_node(
+                    link.vlan_id,
+                    &src_ip.to_string(),
+                    &link.source_mac,
+                    color_of(src_type),
+                    source_label,
+                    &mut updates,
+                );
+                let dst_node_id = self.ensure_l3_node(
+                    link.vlan_id,
+                    &dst_ip.to_string(),
+                    &link.destination_mac,
+                    color_of(dst_type),
+                    destination_label,
+                    &mut updates,
+                );
+
+                self.upsert_edge(
+                    &src_node_id,
+                    &dst_node_id,
+                    best_protocol_label(packet),
+                    packet.transport.as_ref().and_then(|t| t.source_port),
+                    packet.transport.as_ref().and_then(|t| t.destination_port),
+                    packets,
+                    bytes,
+                    encap_ids,
+                    &mut updates,
+                );
+
+                return updates; // L3 traité
+            }
+        }
+
+        // ===============================
+        // 2) Fallback L2 (MAC-only)
+        // ===============================
+        let src_node_id = self.ensure_l2_node(link.vlan_id, &link.source_mac, &mut updates);
+        let dst_node_id = self.ensure_l2_node(link.vlan_id, &link.destination_mac, &mut updates);
+
+        self.upsert_edge(
+            &src_node_id,
+            &dst_node_id,
+            link.protocol.clone(),
+            None, // pas de ports en L2
+            None,
+            packets,
+            bytes,
+            encap_ids,
+            &mut updates,
+        );
+
+        updates
+    }
+
+    /// Retrouve ou crée le nœud L3 d'identité `(vlan, ip)` et retourne son id.
+    /// À la création, si d'autres nœuds portent déjà la même IP (autres VLAN),
+    /// tous les porteurs sont marqués `duplicate_ip` : l'anomalie est
+    /// signalée, jamais fusionnée.
+    fn ensure_l3_node(
+        &mut self,
+        vlan_id: Option<u16>,
+        ip: &str,
+        mac: &str,
+        color: &'static str,
+        label: Option<String>,
+        updates: &mut Vec<GraphUpdate>,
+    ) -> String {
+        use std::collections::hash_map::Entry;
+
+        let key = l3_node_key(vlan_id, ip);
+        let (node_id, created) = match self.nodes.entry(key.clone()) {
+            Entry::Occupied(mut e) => {
+                maybe_update_node_label(e.get_mut(), label, updates);
+                record_observed_mac(e.get_mut(), mac, updates);
+                (e.get().id.clone(), false)
+            }
+            Entry::Vacant(v) => {
+                let node = Node::new(
+                    &key,
+                    ip.to_string(),
+                    mac.to_string(),
+                    color,
+                    ip.to_string(),
+                    vlan_id,
+                    label,
+                );
+                let node_id = node.id.clone();
+                v.insert(node.clone());
+                updates.push(GraphUpdate::NewNode(node));
+                (node_id, true)
+            }
+        };
+
+        if created {
+            let siblings = self.ip_index.entry(ip.to_string()).or_default();
+            siblings.insert(key.clone());
+            if siblings.len() >= 2 {
+                for sibling_key in siblings.clone() {
+                    if let Some(node) = self.nodes.get_mut(&sibling_key)
+                        && !node.duplicate_ip
+                    {
+                        node.duplicate_ip = true;
+                        updates.push(GraphUpdate::NodeUpdated(node.clone()));
+                    }
+                }
+            }
+        }
+
+        self.note_mac_carrier(mac, &key, updates);
+
+        node_id
+    }
+
+    /// Enregistre que le nœud `key` porte la MAC `mac` et, quand cette MAC
+    /// atteint [`GATEWAY_IP_THRESHOLD`] IP unicast distinctes (IPv4 et IPv6
+    /// comptées séparément), marque `gateway_mac` sur tous ses porteurs
+    ///. Le recalcul n'a lieu qu'à l'apparition d'un nouveau porteur.
+    fn note_mac_carrier(&mut self, mac: &str, key: &str, updates: &mut Vec<GraphUpdate>) {
+        if mac.is_empty() || is_non_unicast_mac(mac) {
+            return;
+        }
+        let carriers = self.mac_index.entry(mac.to_string()).or_default();
+        if !carriers.insert(key.to_string()) {
+            return;
+        }
+        let (mut v4, mut v6) = (BTreeSet::new(), BTreeSet::new());
+        for carrier in carriers.iter() {
+            if let Some(ip) = self
+                .nodes
+                .get(carrier)
+                .and_then(|node| node.ip.parse::<std::net::IpAddr>().ok())
+                && is_countable_unicast_ip(&ip)
+            {
+                match ip {
+                    std::net::IpAddr::V4(_) => v4.insert(ip),
+                    std::net::IpAddr::V6(_) => v6.insert(ip),
+                };
+            }
+        }
+        if v4.len().max(v6.len()) < GATEWAY_IP_THRESHOLD {
+            return;
+        }
+        for carrier in carriers.clone() {
+            if let Some(node) = self.nodes.get_mut(&carrier)
+                && !node.gateway_mac
+            {
+                node.gateway_mac = true;
+                updates.push(GraphUpdate::NodeUpdated(node.clone()));
+            }
+        }
+    }
+
+    /// Retrouve ou crée le nœud L2 d'identité `(vlan, mac)` et retourne son id.
+    fn ensure_l2_node(
+        &mut self,
+        vlan_id: Option<u16>,
+        mac: &str,
+        updates: &mut Vec<GraphUpdate>,
+    ) -> String {
+        use std::collections::hash_map::Entry;
+        const L2_COLOR: &str = "#00BCD4";
+
+        let key = l2_node_key(vlan_id, mac);
+        match self.nodes.entry(key.clone()) {
+            Entry::Occupied(e) => e.get().id.clone(),
+            Entry::Vacant(v) => {
+                let node = Node::new(
+                    &key,
+                    mac.to_string(),
+                    mac.to_string(),
+                    L2_COLOR,
+                    "".to_string(),
+                    vlan_id,
+                    None,
+                );
+                let node_id = node.id.clone();
+                v.insert(node.clone());
+                updates.push(GraphUpdate::NewNode(node));
+                node_id
+            }
+        }
+    }
+
+    /// Retrouve ou crée l'arête non orientée `{A,B,proto}` et y agrège le
+    /// trafic. L'arête est stockée dans le sens du premier paquet observé :
+    /// `bidir` ne passe à vrai que quand le sens courant en diffère. Chaque
+    /// service observé s'ajoute à la liste des ports, les éphémères
+    /// levant seulement `has_dynamic_ports`.
+    #[allow(clippy::too_many_arguments)]
+    fn upsert_edge(
+        &mut self,
+        src_node_id: &str,
+        dst_node_id: &str,
+        protocol: String,
+        source_port: Option<u16>,
+        destination_port: Option<u16>,
+        packets: u64,
+        bytes: u64,
+        encap_ids: &[u64],
+        updates: &mut Vec<GraphUpdate>,
+    ) {
+        let edge_key = undirected_edge_key(src_node_id, dst_node_id, &protocol);
+
+        match self.edges.get_mut(&edge_key) {
+            Some(edge) => {
+                let mut notify = false;
+
+                if !edge.bidir && edge.source != src_node_id {
+                    edge.bidir = true;
+                    notify = true;
+                }
+
+                if accumulate_traffic(edge, packets, bytes) {
+                    notify = true;
+                }
+
+                if merge_encap_ids(edge, encap_ids) {
+                    notify = true;
+                }
+
+                if edge.record_service_port(source_port, destination_port) {
+                    notify = true;
+                }
+
+                if notify {
+                    updates.push(GraphUpdate::EdgeUpdated(edge.clone()));
+                }
+            }
+            None => {
+                // Première observation de {A,B,proto} : l'arête est créée
+                // dans le sens réellement observé (la flèche du rendu
+                // reflète le premier paquet).
+                let mut edge =
+                    Edge::new(&edge_key, src_node_id.to_string(), dst_node_id.to_string())
+                        .with_label(protocol)
+                        .with_ports(source_port, destination_port)
+                        .with_traffic(packets, bytes);
+                merge_encap_ids(&mut edge, encap_ids);
+                self.edges.insert(edge_key, edge.clone());
+                updates.push(GraphUpdate::NewEdge(edge));
+            }
+        }
+    }
+
+    /// Vide le graphe et ses index (nouvelle capture, nouveau relevé).
+    pub fn clear(&mut self) {
+        self.nodes.clear();
+        self.edges.clear();
+        self.ip_index.clear();
+        self.mac_index.clear();
+    }
+
+    /// Snapshot entier du graphe pour l'interface : nœuds et arêtes clonés,
+    /// index internes laissés vides (non sérialisés, inutiles au front).
+    pub fn get_all_graph_data(&self) -> GraphData {
+        let nodes = self.nodes.clone();
+        let edges = self.edges.clone();
+        GraphData {
+            nodes,
+            edges,
+            ip_index: HashMap::new(),
+            mac_index: HashMap::new(),
+        }
+    }
+
+    /// Applique un label à tous les nœuds correspondant à l'endpoint
+    /// `(mac, ip)`. Le matching couvre **toutes** les MAC observées du nœud
+    /// (pas seulement la première) et peut toucher plusieurs nœuds :
+    /// la même (mac, ip) vue sur deux VLAN est deux nœuds, tous étiquetés.
+    /// Une MAC vide matche par IP seule ; une IP vide matche les nœuds L2.
+    pub fn update_node_label(&mut self, mac: &str, ip: &str, label: String) -> Vec<GraphUpdate> {
+        let normalized = if label.trim().is_empty() {
+            None
+        } else {
+            Some(label)
+        };
+
+        let mut updates = Vec::new();
+        for node in self.nodes.values_mut() {
+            if !node_matches_endpoint(node, mac, ip) {
+                continue;
+            }
+            if node.label != normalized {
+                node.label = normalized.clone();
+                updates.push(GraphUpdate::NodeUpdated(node.clone()));
+            }
+        }
+
+        updates
+    }
+
+    /// Réapplique les labels de tous les nœuds via `resolve(mac, ip)`
+    /// (typiquement `FlowMatrix::get_label` et ses replis IP seule / MAC
+    /// seule). Le résolveur est essayé sur chaque MAC observée du nœud, la
+    /// première réponse gagne : un label attaché à une MAC secondaire
+    /// n'est plus invisible. Retourne un `NodeUpdated` par nœud modifié.
+    pub fn refresh_labels<F>(&mut self, resolve: F) -> Vec<GraphUpdate>
+    where
+        F: Fn(&str, &str) -> Option<String>,
+    {
+        let mut updates = Vec::new();
+
+        for node in self.nodes.values_mut() {
+            let resolved = std::iter::once(node.mac.as_str())
+                .chain(
+                    node.macs
+                        .iter()
+                        .filter(|m| **m != node.mac)
+                        .map(String::as_str),
+                )
+                .find_map(|mac| resolve(mac, &node.ip));
+            let Some(label) = resolved else {
+                continue;
+            };
+
+            let normalized = if label.trim().is_empty() {
+                None
+            } else {
+                Some(label)
+            };
+
+            if node.label != normalized {
+                node.label = normalized;
+                updates.push(GraphUpdate::NodeUpdated(node.clone()));
+            }
+        }
+
+        updates
+    }
+}
+
+/// Un nœud correspond-il à l'endpoint `(mac, ip)` d'un label ? Une MAC vide
+/// vaut « n'importe quelle MAC » ; une IP vide ne matche que les nœuds sans
+/// IP (L2). Un couple entièrement vide ne matche rien.
+fn node_matches_endpoint(node: &Node, mac: &str, ip: &str) -> bool {
+    if mac.is_empty() && ip.is_empty() {
+        return false;
+    }
+    let mac_matches =
+        mac.is_empty() || node.mac == mac || node.macs.iter().any(|known| known == mac);
+    let ip_matches = if ip.is_empty() {
+        node.ip.is_empty()
+    } else {
+        node.ip == ip
+    };
+    mac_matches && ip_matches
+}
+
+// ————— helpers —————
+
+/// Cumule paquets/octets sur une arête. Retourne true quand le volume change
+/// d'ordre de grandeur (log2) : l'épaisseur au rendu étant logarithmique,
+/// inutile de notifier le front à chaque paquet.
+fn accumulate_traffic(edge: &mut Edge, packets: u64, bytes: u64) -> bool {
+    let bucket_before = 64 - edge.total_bytes.leading_zeros();
+    edge.count = edge.count.saturating_add(packets);
+    edge.total_bytes = edge.total_bytes.saturating_add(bytes);
+    (64 - edge.total_bytes.leading_zeros()) != bucket_before
+}
+
+/// Ajoute à l'arête les ids de tunnel (format hex, celui de la colonne
+/// `encap_id` du CSV) qu'elle ne portait pas encore. Retourne true si la
+/// liste a changé (le front doit être notifié).
+fn merge_encap_ids(edge: &mut Edge, encap_ids: &[u64]) -> bool {
+    let mut changed = false;
+    for id in encap_ids {
+        let hex = format!("{id:016x}");
+        if let Err(pos) = edge.encap_ids.binary_search(&hex) {
+            edge.encap_ids.insert(pos, hex);
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// Vrai si l'IP a un type classifié : une IP absente ou `Unknown` fait
+/// basculer le flux sur le chemin L2.
+fn is_valid_ip(ip_type: Option<&IpType>) -> bool {
+    // invalide si None ou Unknown
+    !matches!(ip_type, None | Some(IpType::Unknown))
+}
+
+/// Couleur hexadécimale CSS d'un nœud L3 d'après le type de son IP ;
+/// gris pour un type inconnu ou futur.
+fn color_of(ip_type: Option<&IpType>) -> &'static str {
+    match ip_type {
+        Some(IpType::Private) => "#8BC34A",       // vert
+        Some(IpType::Public) => "#2196F3",        // bleu
+        Some(IpType::Multicast) => "#FFC107",     // jaune
+        Some(IpType::Loopback) => "#E53935",      // rouge
+        Some(IpType::Apipa) => "#FF9800",         // orange
+        Some(IpType::LinkLocal) => "#FF5722",     // orange foncé
+        Some(IpType::Ula) => "#9C27B0",           // violet
+        Some(IpType::Documentation) => "#9E9E9E", // gris
+        // Diffusion limitée 255.255.255.255 (packet_parser 11) : rose, famille
+        // « un vers plusieurs » sans être confondue avec le multicast jaune.
+        Some(IpType::Broadcast) => "#EC407A", // rose
+        _ => "#9E9E9E",                       // défaut
+    }
+}
+
+/// Applique `label` au nœud s'il est fourni et différent du label
+/// courant, en émettant un `NodeUpdated`. `None` ne retire jamais un
+/// label existant.
+fn maybe_update_node_label(node: &mut Node, label: Option<String>, updates: &mut Vec<GraphUpdate>) {
+    if label.is_some() && node.label != label {
+        node.label = label;
+        updates.push(GraphUpdate::NodeUpdated(node.clone()));
+    }
+}
+
+/// Plafond de MAC retenues par nœud : l'anomalie multi-MAC est déjà signalée
+/// dès la deuxième, en garder plus n'apporte rien à l'arbitrage et une
+/// usurpation massive (MAC aléatoires) gonflerait la mémoire sans borne.
+const MAX_MACS_PER_NODE: usize = 16;
+
+/// Enregistre une MAC unicast supplémentaire observée pour ce nœud (IP).
+/// Plusieurs MAC pour une même IP = anomalie à investiguer (IP partagée,
+/// VRRP, usurpation ARP…) : le front la signale visuellement. Les MAC
+/// broadcast/multicast, partageables par nature, sont ignorées.
+fn record_observed_mac(node: &mut Node, mac: &str, updates: &mut Vec<GraphUpdate>) {
+    if mac.is_empty() || is_non_unicast_mac(mac) {
+        return;
+    }
+    if node.macs.iter().any(|known| known == mac) {
+        return;
+    }
+    if node.macs.len() >= MAX_MACS_PER_NODE {
+        return;
+    }
+    node.macs.push(mac.to_string());
+    updates.push(GraphUpdate::NodeUpdated(node.clone()));
+}
+
+/// Vrai si un nom de protocole est vide ou « unknown » (toute casse) :
+/// il ne compte pas comme détecté.
+fn is_unknown(s: &str) -> bool {
+    let t = s.trim();
+    t.is_empty() || t.eq_ignore_ascii_case("unknown")
+}
+
+/// Protocole affiché sur l'arête : la couche la plus haute réellement
+/// détectée (L7, puis L4, L3, L2), ou « Unknown » si aucune ne l'est.
+fn best_protocol_label(flow: &PacketFlowOwned) -> String {
+    // L7 d'abord (uniquement si réellement détecté)
+    if let Some(app) = &flow.application {
+        let p = app.protocol.as_str();
+        if !is_unknown(p) {
+            return p.to_string();
+        }
+    }
+
+    // Puis L4
+    if let Some(t) = &flow.transport {
+        let p = t.protocol.as_str();
+        if !is_unknown(p) {
+            return p.to_string();
+        }
+    }
+
+    // Puis L3
+    if let Some(i) = &flow.internet {
+        let p = i.protocol.as_str();
+        if !is_unknown(p) {
+            return p.to_string();
+        }
+    }
+
+    // Enfin L2
+    let p = LinkView::of(&flow.data_link).protocol;
+    if !is_unknown(&p) {
+        return p;
+    }
+
+    "Unknown".to_string()
+}
+
+/// Vrai si `expected` est le protocole d'une couche quelconque du flux
+/// (L7, L4, L3 ou L2), sans tenir compte de la casse.
+fn flow_uses_protocol(flow: &PacketFlowOwned, expected: &str) -> bool {
+    flow.application
+        .as_ref()
+        .is_some_and(|layer| layer.protocol.eq_ignore_ascii_case(expected))
+        || flow
+            .transport
+            .as_ref()
+            .is_some_and(|layer| layer.protocol.eq_ignore_ascii_case(expected))
+        || flow
+            .internet
+            .as_ref()
+            .is_some_and(|layer| layer.protocol.eq_ignore_ascii_case(expected))
+        || LinkView::of(&flow.data_link)
+            .protocol
+            .eq_ignore_ascii_case(expected)
+}
+
+/// Clé d'arête non orientée `{A,B,proto}` : ordre canonique stable des ids,
+/// indépendant du sens observé (les deux sens partagent la même arête).
+fn undirected_edge_key(a: &str, b: &str, proto: &str) -> String {
+    if a <= b {
+        format!("{a}:{b}:{proto}")
+    } else {
+        format!("{b}:{a}:{proto}")
+    }
+}
+
+#[cfg(test)]
+mod graph_update_batch_tests {
+    use super::*;
+
+    fn node(id: &str, label: Option<&str>) -> Node {
+        Node {
+            id: id.to_string(),
+            name: "10.0.0.1".to_string(),
+            color: "#8BC34A".to_string(),
+            mac: "aa:bb:cc:dd:ee:ff".to_string(),
+            macs: vec!["aa:bb:cc:dd:ee:ff".to_string()],
+            ip: "10.0.0.1".to_string(),
+            vlan_id: None,
+            duplicate_ip: false,
+            gateway_mac: false,
+            label: label.map(str::to_string),
+        }
+    }
+
+    fn edge(id: &str, count: u64) -> Edge {
+        Edge {
+            id: id.to_string(),
+            source: "1".to_string(),
+            target: "2".to_string(),
+            label: "TCP".to_string(),
+            source_port: None,
+            destination_port: None,
+            ports: BTreeSet::new(),
+            has_dynamic_ports: false,
+            bidir: false,
+            count,
+            total_bytes: count * 100,
+            encap_ids: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn coalesces_edge_updates_keeping_last_payload() {
+        let mut batch = GraphUpdateBatch::default();
+        batch.push(GraphUpdate::EdgeUpdated(edge("7", 1)));
+        batch.push(GraphUpdate::EdgeUpdated(edge("7", 5)));
+
+        let updates = batch.take();
+        assert_eq!(updates.len(), 1);
+        match &updates[0] {
+            GraphUpdate::EdgeUpdated(e) => assert_eq!(e.count, 5),
+            other => panic!("attendu EdgeUpdated, obtenu {other:?}"),
+        }
+    }
+
+    #[test]
+    fn new_edge_variant_survives_later_updates() {
+        let mut batch = GraphUpdateBatch::default();
+        batch.push(GraphUpdate::NewEdge(edge("7", 1)));
+        batch.push(GraphUpdate::EdgeUpdated(edge("7", 9)));
+
+        let updates = batch.take();
+        assert_eq!(updates.len(), 1);
+        match &updates[0] {
+            GraphUpdate::NewEdge(e) => assert_eq!(e.count, 9),
+            other => panic!("attendu NewEdge, obtenu {other:?}"),
+        }
+    }
+
+    #[test]
+    fn distinct_entities_are_kept_in_arrival_order() {
+        let mut batch = GraphUpdateBatch::default();
+        batch.push(GraphUpdate::NewNode(node("1", None)));
+        batch.push(GraphUpdate::NewNode(node("2", None)));
+        batch.push(GraphUpdate::NewEdge(edge("1", 1)));
+        batch.push(GraphUpdate::NodeUpdated(node("1", Some("serveur"))));
+
+        let updates = batch.take();
+        assert_eq!(
+            updates.len(),
+            3,
+            "nœud 1 coalescé, nœud 2 et arête 1 gardés"
+        );
+        match &updates[0] {
+            GraphUpdate::NewNode(n) => {
+                assert_eq!(n.id, "1");
+                assert_eq!(n.label.as_deref(), Some("serveur"));
+            }
+            other => panic!("attendu NewNode, obtenu {other:?}"),
+        }
+    }
+
+    #[test]
+    fn take_resets_the_batch() {
+        let mut batch = GraphUpdateBatch::default();
+        batch.push(GraphUpdate::NewNode(node("1", None)));
+        assert_eq!(batch.len(), 1);
+
+        let _ = batch.take();
+        assert!(batch.is_empty());
+
+        // Réutilisable après take : nouvel index, pas de collision
+        batch.push(GraphUpdate::NodeUpdated(node("1", Some("après"))));
+        assert_eq!(batch.take().len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod add_packet_flow_tests {
+    use super::*;
+    use crate::link::ethernet_link_from_text;
+    use packet_parser::owned::InternetOwned;
+    use packet_parser::parse::data_link::ethertype::Ethertype;
+    use packet_parser::parse::data_link::vlan_tag::VlanTag;
+    use std::net::IpAddr;
+
+    /// Flux L3 minimal : IPv4 privé des deux côtés (chemin L3 du graphe).
+    fn flow(src_mac: &str, src_ip: &str, dst_mac: &str, dst_ip: &str) -> PacketFlowOwned {
+        PacketFlowOwned {
+            data_link: ethernet_link_from_text(src_mac, dst_mac, "IPv4", None),
+            internet: Some(InternetOwned {
+                source_ip: Some(src_ip.parse::<IpAddr>().unwrap()),
+                ip_source_type: Some(IpType::from_ip(src_ip)),
+                destination_ip: Some(dst_ip.parse::<IpAddr>().unwrap()),
+                ip_destination_type: Some(IpType::from_ip(dst_ip)),
+                protocol: "IPv4".to_string(),
+            }),
+            transport: None,
+            application: None,
+            corrupted: None,
+            inner: None,
+        }
+    }
+
+    fn add(graph: &mut GraphData, f: &PacketFlowOwned) -> Vec<GraphUpdate> {
+        graph.add_packet_flow(f, None, None, 1, 100, &[])
+    }
+
+    /// Passerelle probable : dès que la même MAC porte
+    /// `GATEWAY_IP_THRESHOLD` IP unicast distinctes, tous ses porteurs sont
+    /// marqués `gateway_mac` (mise à jour émise une seule fois par nœud), les
+    /// nœuds d'autres MAC ne le sont pas.
+    #[test]
+    fn nodes_behind_a_gateway_mac_are_flagged_once_threshold_is_reached() {
+        let gateway = "00:04:96:a0:0f:60";
+        let mut graph = GraphData::new();
+        let mut flagged_updates = 0;
+        for n in 1..=GATEWAY_IP_THRESHOLD {
+            let updates = add(
+                &mut graph,
+                &flow(
+                    "10:22:33:44:55:66",
+                    "192.168.1.10",
+                    gateway,
+                    &format!("10.0.0.{n}"),
+                ),
+            );
+            flagged_updates += updates
+                .iter()
+                .filter(|u| matches!(u, GraphUpdate::NodeUpdated(node) if node.gateway_mac))
+                .count();
+            let flagged = graph.nodes.values().filter(|node| node.gateway_mac).count();
+            if n < GATEWAY_IP_THRESHOLD {
+                assert_eq!(flagged, 0, "{n} IP : pas encore une passerelle");
+            } else {
+                assert_eq!(
+                    flagged, GATEWAY_IP_THRESHOLD,
+                    "tous les porteurs sont marqués"
+                );
+            }
+        }
+        assert_eq!(
+            flagged_updates, GATEWAY_IP_THRESHOLD,
+            "une mise à jour par porteur"
+        );
+        assert!(
+            !graph.nodes["192.168.1.10"].gateway_mac,
+            "l'autre MAC n'est pas concernée"
+        );
+
+        // Un porteur supplémentaire arrive déjà marqué, sans re-marquer les autres.
+        let updates = add(
+            &mut graph,
+            &flow("10:22:33:44:55:66", "192.168.1.10", gateway, "10.0.0.99"),
+        );
+        assert!(graph.nodes["10.0.0.99"].gateway_mac);
+        assert_eq!(
+            updates
+                .iter()
+                .filter(|u| matches!(u, GraphUpdate::NodeUpdated(node) if node.gateway_mac))
+                .count(),
+            1
+        );
+
+        graph.clear();
+        add(
+            &mut graph,
+            &flow("10:22:33:44:55:66", "192.168.1.10", gateway, "10.0.0.1"),
+        );
+        assert!(
+            !graph.nodes["10.0.0.1"].gateway_mac,
+            "clear réinitialise l'index"
+        );
+    }
+
+    /// Même flux L3, mais dans une trame 802.1Q taguée `vlan`.
+    fn flow_on_vlan(
+        src_mac: &str,
+        src_ip: &str,
+        dst_mac: &str,
+        dst_ip: &str,
+        vlan: u16,
+    ) -> PacketFlowOwned {
+        let mut f = flow(src_mac, src_ip, dst_mac, dst_ip);
+        f.data_link = ethernet_link_from_text(
+            src_mac,
+            dst_mac,
+            "IPv4",
+            Some(VlanTag {
+                id: vlan,
+                pcp: 0,
+                dei: false,
+                inner_ethertype: Ethertype(0x0800),
+            }),
+        );
+        f
+    }
+
+    fn flow_with_ports(
+        src_mac: &str,
+        src_ip: &str,
+        dst_mac: &str,
+        dst_ip: &str,
+        source_port: u16,
+        destination_port: u16,
+    ) -> PacketFlowOwned {
+        let mut f = flow(src_mac, src_ip, dst_mac, dst_ip);
+        f.transport = Some(packet_parser::owned::TransportOwned {
+            source_port: Some(source_port),
+            destination_port: Some(destination_port),
+            protocol: "TCP".to_string(),
+        });
+        f
+    }
+
+    /// Plusieurs services entre les mêmes équipements : l'arête accumule
+    /// tous les ports « service » au lieu de figer le premier couple.
+    #[test]
+    fn edge_accumulates_all_service_ports() {
+        let mut graph = GraphData::new();
+        let src = ("10:00:00:00:00:0a", "192.168.1.10");
+        let dst = ("10:00:00:00:00:0b", "192.168.1.20");
+
+        add(
+            &mut graph,
+            &flow_with_ports(src.0, src.1, dst.0, dst.1, 50_000, 80),
+        );
+        let updates = add(
+            &mut graph,
+            &flow_with_ports(src.0, src.1, dst.0, dst.1, 50_001, 443),
+        );
+
+        let edge = single_edge(&graph);
+        assert_eq!(
+            edge.ports.iter().copied().collect::<Vec<_>>(),
+            vec![80, 443],
+            "les deux services sont visibles"
+        );
+        assert_eq!(edge.destination_port, Some(80), "premier couple préservé");
+        assert!(
+            updates
+                .iter()
+                .any(|u| matches!(u, GraphUpdate::EdgeUpdated(e) if e.ports.len() == 2)),
+            "le front est notifié du nouveau service"
+        );
+
+        // Même service revu : pas de notification pour rien.
+        let updates = add(
+            &mut graph,
+            &flow_with_ports(src.0, src.1, dst.0, dst.1, 50_002, 443),
+        );
+        assert!(
+            !updates
+                .iter()
+                .any(|u| matches!(u, GraphUpdate::EdgeUpdated(e) if e.ports.len() != 2)),
+            "ports inchangés"
+        );
+    }
+
+    /// En bidirectionnel, la réponse `443 → éphémère` ne doit pas accumuler
+    /// le port éphémère du client : le port « service » (le plus petit des
+    /// deux) est retenu dans les deux sens.
+    #[test]
+    fn reply_direction_records_service_port_not_ephemeral() {
+        let mut graph = GraphData::new();
+        let a = ("10:00:00:00:00:0a", "192.168.1.10");
+        let b = ("10:00:00:00:00:0b", "192.168.1.20");
+
+        // Requête client -> serveur puis réponse serveur -> client.
+        add(
+            &mut graph,
+            &flow_with_ports(a.0, a.1, b.0, b.1, 50_123, 443),
+        );
+        add(
+            &mut graph,
+            &flow_with_ports(b.0, b.1, a.0, a.1, 443, 50_123),
+        );
+
+        let edge = single_edge(&graph);
+        assert_eq!(
+            edge.ports.iter().copied().collect::<Vec<_>>(),
+            vec![443],
+            "seul le port service est listé, pas l'éphémère du client"
+        );
+        assert!(!edge.has_dynamic_ports, "443 n'est pas un port dynamique");
+        assert!(edge.bidir);
+    }
+
+    /// Deux ports éphémères (P2P, RTP…) : rien n'entre dans la liste, le
+    /// marqueur has_dynamic_ports est levé une seule fois — l'arête reste
+    /// lisible au lieu d'accumuler des ports dynamiques sans signification.
+    #[test]
+    fn purely_dynamic_ports_raise_flag_without_polluting_list() {
+        let mut graph = GraphData::new();
+        let a = ("10:00:00:00:00:0a", "192.168.1.10");
+        let b = ("10:00:00:00:00:0b", "192.168.1.20");
+
+        add(
+            &mut graph,
+            &flow_with_ports(a.0, a.1, b.0, b.1, 50_000, 60_000),
+        );
+        add(
+            &mut graph,
+            &flow_with_ports(a.0, a.1, b.0, b.1, 50_001, 60_001),
+        );
+
+        let edge = single_edge(&graph);
+        assert!(edge.ports.is_empty(), "aucun port dynamique listé");
+        assert!(edge.has_dynamic_ports, "le trafic éphémère est signalé");
+
+        // Un vrai service apparaît ensuite sur la même arête : il est listé.
+        add(
+            &mut graph,
+            &flow_with_ports(a.0, a.1, b.0, b.1, 50_002, 502),
+        );
+        let edge = single_edge(&graph);
+        assert_eq!(edge.ports.iter().copied().collect::<Vec<_>>(), vec![502]);
+    }
+
+    fn single_edge(graph: &GraphData) -> &Edge {
+        assert_eq!(graph.edges.len(), 1, "une seule arête attendue");
+        graph.edges.values().next().unwrap()
+    }
+
+    /// Régression : deux paquets dans le MÊME sens ne doivent jamais marquer
+    /// l'arête bidirectionnelle (l'ancienne clé canonique le faisait dès que
+    /// l'ordre lexicographique des ids ne suivait pas le sens observé).
+    #[test]
+    fn same_direction_packets_never_mark_bidir() {
+        let mut graph = GraphData::new();
+        let a_to_b = flow(
+            "10:00:00:00:00:0a",
+            "192.168.1.10",
+            "10:00:00:00:00:0b",
+            "192.168.1.20",
+        );
+
+        add(&mut graph, &a_to_b);
+        add(&mut graph, &a_to_b);
+        add(&mut graph, &a_to_b);
+
+        assert!(!single_edge(&graph).bidir, "un seul sens observé");
+    }
+
+    /// Le premier paquet fixe le sens affiché ; le sens inverse passe bidir.
+    #[test]
+    fn reverse_direction_marks_bidir_and_first_direction_is_kept() {
+        let mut graph = GraphData::new();
+        let a_to_b = flow(
+            "10:00:00:00:00:0a",
+            "192.168.1.10",
+            "10:00:00:00:00:0b",
+            "192.168.1.20",
+        );
+        let b_to_a = flow(
+            "10:00:00:00:00:0b",
+            "192.168.1.20",
+            "10:00:00:00:00:0a",
+            "192.168.1.10",
+        );
+
+        add(&mut graph, &a_to_b);
+        assert!(!single_edge(&graph).bidir);
+        let source_id = graph.nodes.get("192.168.1.10").unwrap().id.clone();
+        assert_eq!(
+            single_edge(&graph).source,
+            source_id,
+            "l'arête part du premier émetteur observé"
+        );
+
+        add(&mut graph, &b_to_a);
+        assert!(single_edge(&graph).bidir, "sens inverse observé -> bidir");
+    }
+
+    /// Une IP vue avec plusieurs MAC unicast accumule les MAC observées et
+    /// notifie le front (anomalie type usurpation ARP à signaler).
+    #[test]
+    fn multiple_macs_for_same_ip_are_recorded() {
+        let mut graph = GraphData::new();
+        add(
+            &mut graph,
+            &flow(
+                "10:00:00:00:00:0a",
+                "192.168.1.10",
+                "10:00:00:00:00:0b",
+                "192.168.1.20",
+            ),
+        );
+        let updates = add(
+            &mut graph,
+            &flow(
+                "de:ad:be:ef:00:01",
+                "192.168.1.10",
+                "10:00:00:00:00:0b",
+                "192.168.1.20",
+            ),
+        );
+
+        let node = graph.nodes.get("192.168.1.10").unwrap();
+        assert_eq!(node.macs.len(), 2, "les deux MAC observées sont retenues");
+        assert_eq!(
+            node.mac, "10:00:00:00:00:0a",
+            "la première MAC reste la clé"
+        );
+        assert!(
+            updates
+                .iter()
+                .any(|u| matches!(u, GraphUpdate::NodeUpdated(n) if n.macs.len() == 2)),
+            "le front est notifié de l'anomalie"
+        );
+
+        // Usurpation massive (MAC aléatoires) : la liste est bornée, la
+        // mémoire ne croît plus au-delà du plafond.
+        for i in 0..100u32 {
+            add(
+                &mut graph,
+                &flow(
+                    &format!("02:00:00:00:{:02x}:{:02x}", i / 256, i % 256),
+                    "192.168.1.10",
+                    "10:00:00:00:00:0b",
+                    "192.168.1.20",
+                ),
+            );
+        }
+        let node = graph.nodes.get("192.168.1.10").unwrap();
+        assert_eq!(
+            node.macs.len(),
+            MAX_MACS_PER_NODE,
+            "la liste des MAC est plafonnée"
+        );
+    }
+
+    /// La même IP sur deux VLAN est deux actifs distincts : deux nœuds, avec
+    /// leur VLAN respectif, tous deux marqués `duplicate_ip` (anomalie
+    /// signalée, jamais fusionnée).
+    #[test]
+    fn same_ip_on_two_vlans_makes_two_flagged_nodes() {
+        let mut graph = GraphData::new();
+        add(
+            &mut graph,
+            &flow_on_vlan(
+                "10:00:00:00:00:0a",
+                "192.168.1.10",
+                "10:00:00:00:00:0b",
+                "192.168.1.20",
+                10,
+            ),
+        );
+        let updates = add(
+            &mut graph,
+            &flow_on_vlan(
+                "20:00:00:00:00:0a",
+                "192.168.1.10",
+                "20:00:00:00:00:0b",
+                "192.168.1.20",
+                20,
+            ),
+        );
+
+        assert_eq!(graph.nodes.len(), 4, "deux nœuds par IP, un par VLAN");
+
+        let on_vlan10 = graph.nodes.get("vlan10:192.168.1.10").unwrap();
+        let on_vlan20 = graph.nodes.get("vlan20:192.168.1.10").unwrap();
+        assert_eq!(on_vlan10.vlan_id, Some(10));
+        assert_eq!(on_vlan20.vlan_id, Some(20));
+        assert_ne!(on_vlan10.id, on_vlan20.id, "deux identités distinctes");
+        assert!(on_vlan10.duplicate_ip, "l'anomalie IP dupliquée est levée");
+        assert!(on_vlan20.duplicate_ip);
+        assert_eq!(
+            on_vlan10.macs,
+            vec!["10:00:00:00:00:0a".to_string()],
+            "les MAC ne se mélangent pas entre VLAN"
+        );
+        assert!(
+            updates.iter().any(
+                |u| matches!(u, GraphUpdate::NodeUpdated(n) if n.duplicate_ip
+                    && n.vlan_id == Some(10))
+            ),
+            "le nœud du premier VLAN est re-notifié avec l'anomalie"
+        );
+
+        // Le trafic ne se mélange pas non plus : deux arêtes distinctes.
+        assert_eq!(graph.edges.len(), 2);
+    }
+
+    /// Une trame non taguée et une trame taguée portant la même IP font
+    /// aussi deux nœuds : l'absence de tag est une identité à part entière.
+    #[test]
+    fn untagged_and_tagged_frames_with_same_ip_stay_distinct() {
+        let mut graph = GraphData::new();
+        add(
+            &mut graph,
+            &flow(
+                "10:00:00:00:00:0a",
+                "192.168.1.10",
+                "10:00:00:00:00:0b",
+                "192.168.1.20",
+            ),
+        );
+        add(
+            &mut graph,
+            &flow_on_vlan(
+                "10:00:00:00:00:0a",
+                "192.168.1.10",
+                "10:00:00:00:00:0b",
+                "192.168.1.20",
+                20,
+            ),
+        );
+
+        let untagged = graph.nodes.get("192.168.1.10").unwrap();
+        let tagged = graph.nodes.get("vlan20:192.168.1.10").unwrap();
+        assert_eq!(untagged.vlan_id, None);
+        assert_eq!(tagged.vlan_id, Some(20));
+        assert!(untagged.duplicate_ip && tagged.duplicate_ip);
+    }
+
+    /// Les ids de nœuds et d'arêtes sont dérivés de l'identité, plus d'un
+    /// compteur global : deux graphes construits séparément (ordre inversé)
+    /// donnent les mêmes ids — snapshots déterministes.
+    #[test]
+    fn node_and_edge_ids_are_stable_across_graphs_and_insertion_order() {
+        let a_to_b = flow(
+            "10:00:00:00:00:0a",
+            "192.168.1.10",
+            "10:00:00:00:00:0b",
+            "192.168.1.20",
+        );
+        let c_to_d = flow_on_vlan(
+            "10:00:00:00:00:0c",
+            "192.168.1.30",
+            "10:00:00:00:00:0d",
+            "192.168.1.40",
+            30,
+        );
+
+        let mut first = GraphData::new();
+        add(&mut first, &a_to_b);
+        add(&mut first, &c_to_d);
+
+        let mut second = GraphData::new();
+        add(&mut second, &c_to_d);
+        add(&mut second, &a_to_b);
+
+        for key in first.nodes.keys() {
+            assert_eq!(
+                first.nodes[key].id, second.nodes[key].id,
+                "id de nœud instable pour {key}"
+            );
+        }
+        let mut first_edge_ids: Vec<_> = first.edges.values().map(|e| e.id.clone()).collect();
+        let mut second_edge_ids: Vec<_> = second.edges.values().map(|e| e.id.clone()).collect();
+        first_edge_ids.sort();
+        second_edge_ids.sort();
+        assert_eq!(first_edge_ids, second_edge_ids, "ids d'arêtes instables");
+    }
+
+    /// Changement de MAC (remplacement de carte, usurpation) : le nœud garde
+    /// son identité (clé (vlan, ip), id inchangé), la nouvelle MAC s'ajoute
+    /// aux MAC observées et l'anomalie multi-MAC est visible.
+    #[test]
+    fn mac_change_keeps_node_identity() {
+        let mut graph = GraphData::new();
+        add(
+            &mut graph,
+            &flow(
+                "10:00:00:00:00:0a",
+                "192.168.1.10",
+                "10:00:00:00:00:0b",
+                "192.168.1.20",
+            ),
+        );
+        let id_before = graph.nodes.get("192.168.1.10").unwrap().id.clone();
+
+        add(
+            &mut graph,
+            &flow(
+                "de:ad:be:ef:00:01",
+                "192.168.1.10",
+                "10:00:00:00:00:0b",
+                "192.168.1.20",
+            ),
+        );
+
+        let node = graph.nodes.get("192.168.1.10").unwrap();
+        assert_eq!(
+            node.id, id_before,
+            "l'identité du nœud survit au changement"
+        );
+        assert_eq!(node.macs.len(), 2, "les deux MAC restent observées");
+        assert!(!node.duplicate_ip, "pas de doublon d'IP inter-VLAN ici");
+    }
+
+    /// Un label posé via une MAC secondaire (pas la première observée)
+    /// atteint le nœud : le matching couvre toutes les MAC observées.
+    #[test]
+    fn update_node_label_matches_all_observed_macs() {
+        let mut graph = GraphData::new();
+        add(
+            &mut graph,
+            &flow(
+                "10:00:00:00:00:0a",
+                "192.168.1.10",
+                "10:00:00:00:00:0b",
+                "192.168.1.20",
+            ),
+        );
+        add(
+            &mut graph,
+            &flow(
+                "de:ad:be:ef:00:01",
+                "192.168.1.10",
+                "10:00:00:00:00:0b",
+                "192.168.1.20",
+            ),
+        );
+
+        let updates =
+            graph.update_node_label("de:ad:be:ef:00:01", "192.168.1.10", "Automate 1".into());
+        assert_eq!(updates.len(), 1, "le nœud est trouvé via sa MAC secondaire");
+        assert_eq!(
+            graph.nodes.get("192.168.1.10").unwrap().label.as_deref(),
+            Some("Automate 1")
+        );
+    }
+
+    /// La même (mac, ip) vue sur deux VLAN : les deux nœuds reçoivent le
+    /// label (c'est le même équipement physique vu sur deux segments —
+    /// l'étiquette humaine s'applique aux deux).
+    #[test]
+    fn update_node_label_reaches_all_vlan_siblings() {
+        let mut graph = GraphData::new();
+        for vlan in [10, 20] {
+            add(
+                &mut graph,
+                &flow_on_vlan(
+                    "10:00:00:00:00:0a",
+                    "192.168.1.10",
+                    "10:00:00:00:00:0b",
+                    "192.168.1.20",
+                    vlan,
+                ),
+            );
+        }
+
+        let updates =
+            graph.update_node_label("10:00:00:00:00:0a", "192.168.1.10", "Poste SCADA".into());
+        assert_eq!(updates.len(), 2, "les deux nœuds VLAN sont étiquetés");
+
+        // Ré-application du même label : aucune notification superflue.
+        let updates =
+            graph.update_node_label("10:00:00:00:00:0a", "192.168.1.10", "Poste SCADA".into());
+        assert!(updates.is_empty());
+    }
+
+    /// `refresh_labels` essaie chaque MAC observée du nœud : un label stocké
+    /// pour la MAC secondaire est retrouvé.
+    #[test]
+    fn refresh_labels_resolves_via_secondary_mac() {
+        let mut graph = GraphData::new();
+        add(
+            &mut graph,
+            &flow(
+                "10:00:00:00:00:0a",
+                "192.168.1.10",
+                "10:00:00:00:00:0b",
+                "192.168.1.20",
+            ),
+        );
+        add(
+            &mut graph,
+            &flow(
+                "de:ad:be:ef:00:01",
+                "192.168.1.10",
+                "10:00:00:00:00:0b",
+                "192.168.1.20",
+            ),
+        );
+
+        let updates = graph.refresh_labels(|mac, ip| {
+            (mac == "de:ad:be:ef:00:01" && ip == "192.168.1.10").then(|| "Automate 2".to_string())
+        });
+        assert_eq!(updates.len(), 1);
+        assert_eq!(
+            graph.nodes.get("192.168.1.10").unwrap().label.as_deref(),
+            Some("Automate 2")
+        );
+    }
+
+    /// Le repli L2 est lui aussi VLAN-aware : la même MAC taguée sur deux
+    /// VLAN fait deux nœuds.
+    #[test]
+    fn l2_fallback_separates_vlans() {
+        let mut graph = GraphData::new();
+        for vlan in [10, 20] {
+            let mut f = flow_on_vlan(
+                "10:00:00:00:00:0a",
+                "192.168.1.10",
+                "10:00:00:00:00:0b",
+                "192.168.1.20",
+                vlan,
+            );
+            f.internet = None; // force le repli L2
+            add(&mut graph, &f);
+        }
+
+        assert_eq!(graph.nodes.len(), 4);
+        assert!(graph.nodes.contains_key("vlan10:mac:10:00:00:00:00:0a"));
+        assert!(graph.nodes.contains_key("vlan20:mac:10:00:00:00:00:0a"));
+        assert_eq!(
+            graph
+                .nodes
+                .get("vlan10:mac:10:00:00:00:00:0a")
+                .unwrap()
+                .vlan_id,
+            Some(10)
+        );
+    }
+
+    /// `clear` remet aussi l'index IP à zéro : après reset, une IP revue
+    /// seule n'est pas marquée dupliquée.
+    #[test]
+    fn clear_resets_duplicate_ip_tracking() {
+        let mut graph = GraphData::new();
+        for vlan in [10, 20] {
+            add(
+                &mut graph,
+                &flow_on_vlan(
+                    "10:00:00:00:00:0a",
+                    "192.168.1.10",
+                    "10:00:00:00:00:0b",
+                    "192.168.1.20",
+                    vlan,
+                ),
+            );
+        }
+        graph.clear();
+
+        add(
+            &mut graph,
+            &flow_on_vlan(
+                "10:00:00:00:00:0a",
+                "192.168.1.10",
+                "10:00:00:00:00:0b",
+                "192.168.1.20",
+                10,
+            ),
+        );
+        assert!(
+            !graph.nodes.get("vlan10:192.168.1.10").unwrap().duplicate_ip,
+            "plus de doublon après clear"
+        );
+    }
+
+    /// Les MAC broadcast/multicast, partageables par nature, ne comptent pas
+    /// comme conflit.
+    #[test]
+    fn non_unicast_macs_are_not_recorded_as_conflict() {
+        let mut graph = GraphData::new();
+        add(
+            &mut graph,
+            &flow(
+                "10:00:00:00:00:0a",
+                "192.168.1.10",
+                "10:00:00:00:00:0b",
+                "192.168.1.20",
+            ),
+        );
+        add(
+            &mut graph,
+            &flow(
+                "ff:ff:ff:ff:ff:ff",
+                "192.168.1.10",
+                "10:00:00:00:00:0b",
+                "192.168.1.20",
+            ),
+        );
+
+        let node = graph.nodes.get("192.168.1.10").unwrap();
+        assert_eq!(node.macs.len(), 1, "la MAC broadcast est ignorée");
+    }
+}

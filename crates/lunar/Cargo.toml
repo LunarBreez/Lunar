@@ -1,0 +1,50 @@
+[package]
+name = "lunar"
+description = "LUNAR : interface native gpui (thème, composants, application)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "lunar"
+path = "src/main.rs"
+
+[dependencies]
+lunar-engine = { path = "../lunar-engine" }
+lunar-ui-logic = { path = "../lunar-ui-logic" }
+lunar-flows-core = { path = "../lunar-flows-core" }
+gpui = "=0.2.2"
+rfd = { version = "0.16", default-features = false, features = ["gtk3"] }
+env_logger = "0.11"
+unicode-segmentation = "1.10"
+# File d'événements du moteur vers la boucle gpui, attendue sans scrutation ;
+# file de réveil du fil ForceAtlas2.
+futures = "0.3.34"
+# Journal fichier horodaté (voir src/app/logs.rs).
+log = "0.4.35"
+env_filter = "2.0.0"
+chrono = "0.4.45"
+# Lignes du journal de paquets formatées depuis le JSON du contrat.
+serde_json = "1.0.150"
+# Export PNG hors écran de la vue graphe, avec la police embarquée
+# (ttf-parser, déjà tiré par gpui).
+tiny-skia = "0.12.0"
+ttf-parser = "0.25.1"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+# Trames réelles parsées dans les essais du journal de trames.
+packet_parser = "11.8.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = "0.13"
+# malloc_trim après une réinitialisation du relevé (src/app/memory.rs).
+libc = "0.2.186"

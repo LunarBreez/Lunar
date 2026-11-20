@@ -1,0 +1,352 @@
+{
+  "timeZone": "Etc/GMT-2",
+  "offsetSeconds": 7200,
+  "generatedAt": "2026-10-12T08:30:00.007Z",
+  "graph": {
+    "nodes": {
+      "10.0.1.1": {
+        "id": "4d5e6f708192a3b4",
+        "name": "10.0.1.1",
+        "color": "#8BC34A",
+        "mac": "00:00:0c:07:ac:01",
+        "macs": [
+          "00:00:0c:07:ac:01"
+        ],
+        "ip": "10.0.1.1",
+        "vlan_id": null,
+        "duplicate_ip": false,
+        "gateway_mac": true,
+        "label": "Pare-feu <périmètre> & \"DMZ\" l'unique"
+      },
+      "10.0.1.10": {
+        "id": "1a2b3c4d5e6f7081",
+        "name": "10.0.1.10",
+        "color": "#8BC34A",
+        "mac": "00:0e:8c:11:22:33",
+        "macs": [
+          "00:0e:8c:11:22:33"
+        ],
+        "ip": "10.0.1.10",
+        "vlan_id": null,
+        "duplicate_ip": false,
+        "gateway_mac": false,
+        "label": "Automate ligne 1"
+      },
+      "10.0.1.20": {
+        "id": "2b3c4d5e6f708192",
+        "name": "10.0.1.20",
+        "color": "#8BC34A",
+        "mac": "00:0c:29:aa:bb:cc",
+        "macs": [
+          "00:0c:29:aa:bb:cc",
+          "00:50:56:01:02:03"
+        ],
+        "ip": "10.0.1.20",
+        "vlan_id": null,
+        "duplicate_ip": true,
+        "gateway_mac": false,
+        "label": "Poste de supervision — SCADA"
+      },
+      "169.254.12.7": {
+        "id": "b4c5d6e7f8091a2b",
+        "name": "169.254.12.7",
+        "color": "#FF9800",
+        "mac": "de:73:c8:36:f6:c5",
+        "macs": [
+          "de:73:c8:36:f6:c5"
+        ],
+        "ip": "169.254.12.7",
+        "vlan_id": null,
+        "duplicate_ip": false,
+        "gateway_mac": false,
+        "label": "  Capteur température  "
+      },
+      "224.0.0.251": {
+        "id": "8192a3b4c5d6e7f8",
+        "name": "224.0.0.251",
+        "color": "#FFC107",
+        "mac": "01:00:5e:00:00:fb",
+        "macs": [],
+        "ip": "224.0.0.251",
+        "vlan_id": null,
+        "duplicate_ip": false,
+        "gateway_mac": false,
+        "label": null
+      },
+      "239.255.255.250": {
+        "id": "708192a3b4c5d6e7",
+        "name": "239.255.255.250",
+        "color": "#FFC107",
+        "mac": "01:00:5e:7f:ff:fa",
+        "macs": [],
+        "ip": "239.255.255.250",
+        "vlan_id": null,
+        "duplicate_ip": false,
+        "gateway_mac": false,
+        "label": null
+      },
+      "8.8.8.8": {
+        "id": "5e6f708192a3b4c5",
+        "name": "8.8.8.8",
+        "color": "#2196F3",
+        "mac": "00:00:0c:07:ac:01",
+        "macs": [],
+        "ip": "8.8.8.8",
+        "vlan_id": null,
+        "duplicate_ip": false,
+        "gateway_mac": false,
+        "label": null
+      },
+      "93.184.216.34": {
+        "id": "6f708192a3b4c5d6",
+        "name": "93.184.216.34",
+        "color": "#2196F3",
+        "mac": "00:00:0c:07:ac:01",
+        "macs": [],
+        "ip": "93.184.216.34",
+        "vlan_id": null,
+        "duplicate_ip": false,
+        "gateway_mac": false,
+        "label": "Serveur web externe"
+      },
+      "mac:b8:27:eb:12:34:56": {
+        "id": "92a3b4c5d6e7f809",
+        "name": "b8:27:eb:12:34:56",
+        "color": "#00BCD4",
+        "mac": "b8:27:eb:12:34:56",
+        "macs": [
+          "b8:27:eb:12:34:56"
+        ],
+        "ip": "",
+        "vlan_id": null,
+        "duplicate_ip": false,
+        "gateway_mac": false,
+        "label": null
+      },
+      "mac:ff:ff:ff:ff:ff:ff": {
+        "id": "a3b4c5d6e7f8091a",
+        "name": "ff:ff:ff:ff:ff:ff",
+        "color": "#00BCD4",
+        "mac": "ff:ff:ff:ff:ff:ff",
+        "macs": [],
+        "ip": "",
+        "vlan_id": null,
+        "duplicate_ip": false,
+        "gateway_mac": false,
+        "label": null
+      },
+      "vlan20:10.0.1.20": {
+        "id": "3c4d5e6f708192a3",
+        "name": "10.0.1.20",
+        "color": "#8BC34A",
+        "mac": "00:1d:9c:44:55:66",
+        "macs": [
+          "00:1d:9c:44:55:66"
+        ],
+        "ip": "10.0.1.20",
+        "vlan_id": 20,
+        "duplicate_ip": true,
+        "gateway_mac": false,
+        "label": null
+      },
+      "vlan30:10.0.2.5": {
+        "id": "c5d6e7f8091a2b3c",
+        "name": "10.0.2.5",
+        "color": "#8BC34A",
+        "mac": "52:54:00:12:34:56",
+        "macs": [
+          "52:54:00:12:34:56"
+        ],
+        "ip": "10.0.2.5",
+        "vlan_id": 30,
+        "duplicate_ip": false,
+        "gateway_mac": false,
+        "label": "Équipement isolé"
+      }
+    },
+    "edges": {
+      "1a2b3c4d5e6f7081:2b3c4d5e6f708192:ModbusTCP": {
+        "id": "f010000000000000",
+        "source": "1a2b3c4d5e6f7081",
+        "target": "2b3c4d5e6f708192",
+        "label": "ModbusTCP",
+        "sourcePort": 49152,
+        "destinationPort": 502,
+        "ports": [
+          502
+        ],
+        "hasDynamicPorts": false,
+        "bidir": true,
+        "count": 15234,
+        "totalBytes": 1234567,
+        "encapIds": []
+      },
+      "1a2b3c4d5e6f7081:3c4d5e6f708192a3:S7Comm": {
+        "id": "f040000000000000",
+        "source": "3c4d5e6f708192a3",
+        "target": "1a2b3c4d5e6f7081",
+        "label": "S7Comm",
+        "sourcePort": 1100,
+        "destinationPort": 102,
+        "ports": [
+          102
+        ],
+        "hasDynamicPorts": false,
+        "bidir": false,
+        "count": 900,
+        "totalBytes": 1234567,
+        "encapIds": []
+      },
+      "1a2b3c4d5e6f7081:4d5e6f708192a3b4:ICMP": {
+        "id": "f100000000000000",
+        "source": "1a2b3c4d5e6f7081",
+        "target": "4d5e6f708192a3b4",
+        "label": "ICMP",
+        "sourcePort": null,
+        "destinationPort": null,
+        "ports": [],
+        "hasDynamicPorts": false,
+        "bidir": true,
+        "count": 4,
+        "totalBytes": 392,
+        "encapIds": []
+      },
+      "1a2b3c4d5e6f7081:b4c5d6e7f8091a2b:none": {
+        "id": "f090000000000000",
+        "source": "b4c5d6e7f8091a2b",
+        "target": "1a2b3c4d5e6f7081",
+        "label": "",
+        "sourcePort": null,
+        "destinationPort": null,
+        "ports": [],
+        "hasDynamicPorts": false,
+        "bidir": false,
+        "count": 1,
+        "totalBytes": 60,
+        "encapIds": []
+      },
+      "2b3c4d5e6f708192:5e6f708192a3b4c5:DNS": {
+        "id": "f030000000000000",
+        "source": "2b3c4d5e6f708192",
+        "target": "5e6f708192a3b4c5",
+        "label": "DNS",
+        "sourcePort": 53000,
+        "destinationPort": 53,
+        "ports": [
+          53
+        ],
+        "hasDynamicPorts": false,
+        "bidir": true,
+        "count": 40,
+        "totalBytes": 3200,
+        "encapIds": []
+      },
+      "2b3c4d5e6f708192:6f708192a3b4c5d6:TLS": {
+        "id": "f020000000000000",
+        "source": "2b3c4d5e6f708192",
+        "target": "6f708192a3b4c5d6",
+        "label": "TLS",
+        "sourcePort": 51000,
+        "destinationPort": 443,
+        "ports": [
+          443
+        ],
+        "hasDynamicPorts": false,
+        "bidir": true,
+        "count": 8000,
+        "totalBytes": 52428800,
+        "encapIds": []
+      },
+      "2b3c4d5e6f708192:708192a3b4c5d6e7:SSDP": {
+        "id": "f050000000000000",
+        "source": "2b3c4d5e6f708192",
+        "target": "708192a3b4c5d6e7",
+        "label": "SSDP",
+        "sourcePort": 50000,
+        "destinationPort": 1900,
+        "ports": [
+          1900
+        ],
+        "hasDynamicPorts": false,
+        "bidir": false,
+        "count": 12,
+        "totalBytes": 2048,
+        "encapIds": []
+      },
+      "2b3c4d5e6f708192:8192a3b4c5d6e7f8:mDNS": {
+        "id": "f060000000000000",
+        "source": "2b3c4d5e6f708192",
+        "target": "8192a3b4c5d6e7f8",
+        "label": "mDNS",
+        "sourcePort": 5353,
+        "destinationPort": 5353,
+        "ports": [
+          5353
+        ],
+        "hasDynamicPorts": false,
+        "bidir": false,
+        "count": 12,
+        "totalBytes": 2048,
+        "encapIds": []
+      },
+      "4d5e6f708192a3b4:5e6f708192a3b4c5:UnknownProto/9": {
+        "id": "f110000000000000",
+        "source": "4d5e6f708192a3b4",
+        "target": "5e6f708192a3b4c5",
+        "label": "UnknownProto/9",
+        "sourcePort": 3000,
+        "destinationPort": 8080,
+        "ports": [
+          3000,
+          8080
+        ],
+        "hasDynamicPorts": false,
+        "bidir": false,
+        "count": 2,
+        "totalBytes": 1048576,
+        "encapIds": []
+      },
+      "4d5e6f708192a3b4:6f708192a3b4c5d6:TCP": {
+        "id": "f080000000000000",
+        "source": "4d5e6f708192a3b4",
+        "target": "6f708192a3b4c5d6",
+        "label": "TCP",
+        "sourcePort": 50001,
+        "destinationPort": 50002,
+        "ports": [],
+        "hasDynamicPorts": true,
+        "bidir": false,
+        "count": 3,
+        "totalBytes": 180,
+        "encapIds": [
+          "9f8e7d6c5b4a3921"
+        ]
+      },
+      "92a3b4c5d6e7f809:a3b4c5d6e7f8091a:ARP": {
+        "id": "f070000000000000",
+        "source": "92a3b4c5d6e7f809",
+        "target": "a3b4c5d6e7f8091a",
+        "label": "ARP",
+        "sourcePort": null,
+        "destinationPort": null,
+        "ports": [],
+        "hasDynamicPorts": false,
+        "bidir": false,
+        "count": 30,
+        "totalBytes": 1800,
+        "encapIds": []
+      }
+    }
+  },
+  "csvFileName": "20261012_DR_Synthese <site> & \"test\".csv",
+  "csvSha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "csvBytes": 1234567,
+  "linkType": "ETHERNET",
+  "site": "Site <b>\"Nord\"</b> & co",
+  "sensor": "",
+  "interface": "eth0",
+  "appVersion": "0.1.0",
+  "period": {
+    "state": "unknown"
+  }
+}
