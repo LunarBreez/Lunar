@@ -15,7 +15,9 @@ paquet ni signature de code (voir « Intégration continue et versions » et « 
 périmètre »).
 
 Pour les bugs, les questions et les demandes d'évolution, ouvrez une
-[issue](https://github.com/LunarBreez/Lunar/issues).
+[issue](https://github.com/LunarBreez/Lunar/issues). Pour une vulnérabilité,
+pas d'issue publique : suivez la [politique de sécurité](SECURITY.md)
+(signalement privé).
 
 ## Construire et lancer
 
