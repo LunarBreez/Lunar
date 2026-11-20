@@ -31,8 +31,12 @@ nightly de `rust-toolchain.toml`) :
 ```shell
 script/fuzz/prepare-corpus.sh
 cd crates/lunar-flows-core/fuzz
-cargo fuzz run pcap_reader -- -max_len=262144
+cargo fuzz run --target x86_64-unknown-linux-gnu pcap_reader -- -max_len=262144
 ```
+
+`--target` n'est pas facultatif avec le binaire officiel de cargo-fuzz : il
+est compilé pour musl et vise cette cible par défaut, que les sanitizers
+refusent. `script/fuzz/smoke.sh` donne de lui-même la cible de l'hôte.
 
 La CI exécute les trois cibles avec un budget borné à chaque push (job
 « Fuzzing borné » de `ci.yml`) ; un crash y dépose son entrée dans l'artefact
