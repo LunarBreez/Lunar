@@ -1,0 +1,779 @@
+// Copyright (c) 2026 Cyprien Avico avicocyprien@yahoo.com
+//
+// Licensed under the MIT License <LICENSE-MIT or http://opensource.org/licenses/MIT>.
+// This file may not be copied, modified, or distributed except according to those terms.
+
+pub mod dscp_ecn;
+pub mod protocols;
+
+use std::convert::TryFrom;
+use std::net::IpAddr;
+
+use crate::errors::application::ptp::PtpPacketParseError;
+use crate::errors::internet::InternetError;
+use crate::parse::application::protocols::ptp::PtpPacket;
+use crate::parse::data_link::ethertype::Ethertype;
+use crate::parse::internet::protocols::goose::GoosePacket;
+use crate::parse::internet::protocols::lldp::LldpPacket;
+use crate::parse::internet::protocols::profinet;
+use crate::parse::transport::protocols::TransportProtocol;
+use protocols::arp::ArpPacket;
+use protocols::ipv4;
+use protocols::ipv6;
+use serde::Serialize;
+pub mod ip_type;
+use super::transport::Transport;
+use crate::NetworkProtocol;
+use ip_type::IpType;
+
+/// Protocol-specific parsed header, kept alongside the flattened summary
+/// fields so consumers never need to re-parse the payload to reach fields
+/// like DSCP/ECN, TTL or the ARP operation.
+///
+/// `None` on [`Internet`] means the protocol keeps no detailed header
+/// (Profinet) or the value was built by hand.
+#[non_exhaustive]
+#[derive(Debug, Clone)]
+pub enum InternetDetails<'a> {
+    Ipv4(ipv4::Ipv4Packet<'a>),
+    Ipv6(ipv6::Ipv6Packet<'a>),
+    Arp(ArpPacket),
+    /// PTP directly over Ethernet (EtherType `0x88F7`).
+    Ptp(PtpPacket<'a>),
+    /// GOOSE, IEC 61850-8-1, directly over Ethernet (EtherType `0x88B8`).
+    Goose(GoosePacket<'a>),
+    /// LLDP, IEEE 802.1AB, directly over Ethernet (EtherType `0x88CC`).
+    Lldp(LldpPacket<'a>),
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
+pub struct Internet<'a> {
+    /// Source IP address when the internet layer carries one.
+    // Les cles JSON sont celles du modele owned (`InternetOwned`) : un seul
+    // schema pour les deux modeles (#22). Dans l'objet aplati du flux,
+    // `source_ip` a cote de `source_port` et `source_mac` ne prete pas a
+    // confusion, la ou `source` seul le faisait.
+    #[serde(rename = "source_ip")]
+    pub source: Option<IpAddr>,
+    /// Classification of the source IP address.
+    #[serde(rename = "ip_source_type")]
+    pub source_type: Option<IpType>,
+    /// Destination IP address when the internet layer carries one.
+    #[serde(rename = "destination_ip")]
+    pub destination: Option<IpAddr>,
+    /// Classification of the destination IP address.
+    #[serde(rename = "ip_destination_type")]
+    pub destination_type: Option<IpType>,
+    /// Parsed internet-layer protocol name.
+    #[serde(rename = "protocol_internet")]
+    pub protocol_name: &'static str,
+    /// Transport protocol parsable from `payload`.
+    ///
+    /// This is not a pure copy of an IP header protocol field. For IPv4
+    /// fragments, it is `None` because parsing L4 safely requires IP
+    /// reassembly, which this crate does not perform.
+    ///
+    /// Not serialized: the flow JSON names the transport protocol once, as
+    /// `protocol_transport`, from the transport layer.
+    #[serde(skip_serializing)]
+    pub payload_protocol: Option<TransportProtocol>,
+    /// Internet-layer payload bytes.
+    #[serde(skip_serializing)]
+    pub payload: &'a [u8],
+    /// Full parsed header when the protocol keeps one.
+    ///
+    /// Ignored by `PartialEq`/`Hash`/serialization: the flattened fields
+    /// above define the identity of the internet layer.
+    #[serde(skip_serializing)]
+    pub details: Option<InternetDetails<'a>>,
+}
+
+impl<'a> Internet<'a> {
+    /// Whether the destination is a multicast group (issue #9). Relies on
+    /// the classification already carried by `destination_type`.
+    pub fn destination_is_multicast(&self) -> bool {
+        self.destination_type == Some(IpType::Multicast)
+    }
+
+    /// Whether the destination is the IPv4 limited broadcast
+    /// 255.255.255.255 (issue #9). Since 11.0.0 the parser also classifies it
+    /// as `IpType::Broadcast` in `destination_type`; this helper reads the
+    /// address, so it stays correct on an `Internet` built by hand. A
+    /// directed broadcast (x.y.z.255, depending on the mask) requires knowing
+    /// the subnet, which a packet parser does not.
+    pub fn destination_is_limited_broadcast(&self) -> bool {
+        matches!(
+            self.destination,
+            Some(IpAddr::V4(addr)) if addr.is_broadcast()
+        )
+    }
+
+    /// Parses the internet layer using the EtherType announced by the
+    /// data-link layer.
+    ///
+    /// Unlike [`Internet::try_from`], which probes every supported protocol
+    /// and therefore cannot tell a corrupt packet from an unknown protocol,
+    /// this dispatches on `ethertype`:
+    ///
+    /// - unknown EtherType (e.g. LLDP) → [`InternetError::UnsupportedProtocol`]
+    /// - known EtherType but corrupt payload → the protocol's parse error
+    pub fn try_from_parts(ethertype: Ethertype, payload: &'a [u8]) -> Result<Self, InternetError> {
+        Self::try_from_network_parts(ethertype.into(), payload)
+    }
+
+    /// Parses the internet layer from a format-neutral link-layer protocol.
+    ///
+    /// RAW IP decoders can call this with `Ipv4` or `Ipv6` directly instead of
+    /// inventing an Ethernet header or EtherType.
+    pub fn try_from_network_parts(
+        protocol: NetworkProtocol,
+        payload: &'a [u8],
+    ) -> Result<Self, InternetError> {
+        match protocol {
+            NetworkProtocol::Arp => Ok(Self::from_arp(ArpPacket::try_from(payload)?)),
+            NetworkProtocol::Ipv4 => Ok(Self::from_ipv4(ipv4::Ipv4Packet::try_from(payload)?)),
+            NetworkProtocol::Ipv6 => Ok(Self::from_ipv6(ipv6::Ipv6Packet::try_from(payload)?)),
+            NetworkProtocol::Profinet => {
+                // Toute trame RT est valide par son Frame ID ; seul un Frame
+                // ID DCP doit porter un message DCP lisible (#133).
+                profinet::validate_frame(payload)?;
+                Ok(Self::profinet())
+            }
+            NetworkProtocol::Ptp => match PtpPacket::try_from(payload) {
+                Ok(ptp_packet) => Ok(Self::from_ptp(ptp_packet)),
+                // Version ou type de message que la crate ne connait pas (une
+                // revision future de 1588, un usage propre a un constructeur) :
+                // la trame n'est pas prise en charge, elle n'est pas corrompue.
+                Err(
+                    PtpPacketParseError::UnsupportedVersion(_)
+                    | PtpPacketParseError::ReservedMessageType(_),
+                ) => Err(InternetError::UnsupportedProtocol),
+                Err(error) => Err(error.into()),
+            },
+            NetworkProtocol::Goose => Ok(Self::from_goose(GoosePacket::try_from(payload)?)),
+            NetworkProtocol::Lldp => Ok(Self::from_lldp(LldpPacket::try_from(payload)?)),
+            NetworkProtocol::Other(_) => Err(InternetError::UnsupportedProtocol),
+        }
+    }
+
+    fn from_arp(arp_packet: ArpPacket) -> Self {
+        Internet {
+            source: Some(arp_packet.sender_protocol_addr),
+            source_type: Some(IpType::from_addr(&arp_packet.sender_protocol_addr)),
+            destination: Some(arp_packet.target_protocol_addr),
+            destination_type: Some(IpType::from_addr(&arp_packet.target_protocol_addr)),
+            protocol_name: "ARP",
+            payload_protocol: None,
+            payload: &[],
+            details: Some(InternetDetails::Arp(arp_packet)),
+        }
+    }
+
+    fn from_ipv4(ipv4_packet: ipv4::Ipv4Packet<'a>) -> Self {
+        let payload_protocol = if ipv4_packet.is_fragmented() {
+            None
+        } else {
+            Some(Transport::transport_from_u8(&ipv4_packet.protocol))
+        };
+
+        Internet {
+            source: Some(IpAddr::V4(ipv4_packet.source_addr)),
+            source_type: Some(IpType::from_addr(&IpAddr::V4(ipv4_packet.source_addr))),
+            destination: Some(IpAddr::V4(ipv4_packet.dest_addr)),
+            destination_type: Some(IpType::from_addr(&IpAddr::V4(ipv4_packet.dest_addr))),
+            protocol_name: "IPv4",
+            payload_protocol,
+            payload: ipv4_packet.payload,
+            details: Some(InternetDetails::Ipv4(ipv4_packet)),
+        }
+    }
+
+    fn from_ipv6(ipv6_packet: ipv6::Ipv6Packet<'a>) -> Self {
+        Internet {
+            source: Some(IpAddr::V6(ipv6_packet.source_addr)),
+            source_type: Some(IpType::from_addr(&IpAddr::V6(ipv6_packet.source_addr))),
+            destination: Some(IpAddr::V6(ipv6_packet.dest_addr)),
+            destination_type: Some(IpType::from_addr(&IpAddr::V6(ipv6_packet.dest_addr))),
+            protocol_name: "IPv6",
+            payload_protocol: ipv6_packet
+                .transport_protocol
+                .map(|protocol| Transport::transport_from_u8(&protocol)),
+            payload: ipv6_packet.payload,
+            details: Some(InternetDetails::Ipv6(ipv6_packet)),
+        }
+    }
+
+    /// PTP en couche 2 n'a ni adresse IP ni transport : le message entier
+    /// est le payload de la trame, et il est garde decode dans `details`.
+    fn from_ptp(ptp_packet: PtpPacket<'a>) -> Self {
+        Internet {
+            source: None,
+            source_type: None,
+            destination: None,
+            destination_type: None,
+            protocol_name: "PTP",
+            payload_protocol: None,
+            payload: &[],
+            details: Some(InternetDetails::Ptp(ptp_packet)),
+        }
+    }
+
+    /// GOOSE est publie en multicast Ethernet, sans IP ni transport : le
+    /// message decode est garde dans `details`, comme PTP.
+    fn from_goose(goose_packet: GoosePacket<'a>) -> Self {
+        Internet {
+            source: None,
+            source_type: None,
+            destination: None,
+            destination_type: None,
+            protocol_name: "GOOSE",
+            payload_protocol: None,
+            payload: &[],
+            details: Some(InternetDetails::Goose(goose_packet)),
+        }
+    }
+
+    /// LLDP s'annonce en multicast Ethernet, sans IP ni transport : le
+    /// LLDPDU decode est garde dans `details`, comme GOOSE.
+    fn from_lldp(lldp_packet: LldpPacket<'a>) -> Self {
+        Internet {
+            source: None,
+            source_type: None,
+            destination: None,
+            destination_type: None,
+            protocol_name: "LLDP",
+            payload_protocol: None,
+            payload: &[],
+            details: Some(InternetDetails::Lldp(lldp_packet)),
+        }
+    }
+
+    fn profinet() -> Self {
+        Internet {
+            source: None,
+            source_type: None,
+            destination: None,
+            destination_type: None,
+            protocol_name: "Profinet",
+            payload_protocol: None,
+            payload: &[],
+            details: None,
+        }
+    }
+}
+
+impl<'a> TryFrom<&'a [u8]> for Internet<'a> {
+    type Error = InternetError;
+
+    /// Probes ARP, IPv4, IPv6, Profinet, GOOSE then LLDP in order, without
+    /// knowing the EtherType. Prefer [`Internet::try_from_parts`] when the data-link
+    /// layer is available: probing cannot distinguish a corrupt packet from
+    /// an unsupported protocol.
+    fn try_from(packet: &'a [u8]) -> Result<Self, Self::Error> {
+        if packet.is_empty() {
+            return Err(InternetError::EmptyPacket);
+        }
+
+        if let Ok(arp_packet) = ArpPacket::try_from(packet) {
+            return Ok(Self::from_arp(arp_packet));
+        }
+
+        if let Ok(ipv4_packet) = ipv4::Ipv4Packet::try_from(packet) {
+            return Ok(Self::from_ipv4(ipv4_packet));
+        }
+
+        if let Ok(ipv6_packet) = ipv6::Ipv6Packet::try_from(packet) {
+            return Ok(Self::from_ipv6(ipv6_packet));
+        }
+
+        // Sondage sans EtherType : seul un message DCP complet est une preuve,
+        // deux octets de Frame ID plausibles n'en sont pas une.
+        if profinet::ProfinetPacket::try_from(packet).is_ok() {
+            return Ok(Self::profinet());
+        }
+
+        // GOOSE se prouve par sa longueur, qui couvre exactement la trame,
+        // et un goosePdu BER complet avec ses champs obligatoires.
+        if let Ok(goose_packet) = GoosePacket::try_from(packet) {
+            return Ok(Self::from_goose(goose_packet));
+        }
+
+        // LLDP se prouve par ses trois TLV obligatoires, dans l'ordre, un TLV
+        // End of LLDPDU et un bourrage nul.
+        if LldpPacket::is_blind_match(packet) {
+            return LldpPacket::try_from(packet)
+                .map(Self::from_lldp)
+                .map_err(InternetError::from);
+        }
+
+        Err(InternetError::UnsupportedProtocol)
+    }
+}
+
+// impl<'a> Internet<'a> {
+//     pub fn to_transport(&self) -> Option<Transport<'a>> {
+//        let protocol = match self.payload_protocol.as_deref()? {
+//             "ICMPv6" => TransportProtocol::IcmpV6,
+//             "ICMP" => TransportProtocol::Icmp,
+//             "UDP" => TransportProtocol::Udp,
+//             "TCP" => TransportProtocol::Tcp,
+//             "IGMP" => TransportProtocol::Igmp,
+//             "PIM" => TransportProtocol::Pim,
+//             "PIMv2" => TransportProtocol::PimV2,
+//             "VRRP" => TransportProtocol::Vrrp,
+//             // Ajoutez d'autres correspondances si nécessaire
+//             _ => return None,
+//         };
+
+//         Some(Transport {
+//             protocol,
+//             source_port: None,
+//             destination_port: None,
+//             payload: None,
+//         })
+//     }
+// }
+
+impl<'a> Eq for Internet<'a> {}
+
+impl<'a> PartialEq for Internet<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        self.source == other.source
+            && self.source_type == other.source_type
+            && self.destination == other.destination
+            && self.destination_type == other.destination_type
+            && self.protocol_name == other.protocol_name
+            && self.payload_protocol == other.payload_protocol
+    }
+}
+use std::hash::{Hash, Hasher};
+
+impl<'a> Hash for Internet<'a> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.source.hash(state);
+        self.source_type.hash(state);
+        self.destination.hash(state);
+        self.destination_type.hash(state);
+        self.protocol_name.hash(state);
+        self.payload_protocol.hash(state);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Delay_Req reel (`ptp/wireshark_6126_nodeb_startup.pcap` trame 113),
+    /// pris tel quel comme payload d'une trame 0x88F7.
+    const PTP_DELAY_REQ: &str =
+        "0102002c000004000000000000000000000000001880f5ffff31353d00010001017f0000000000051839f1a8";
+
+    #[test]
+    fn ptp_on_ethertype_0x88f7_keeps_the_decoded_message() {
+        let payload = hex::decode(PTP_DELAY_REQ).unwrap();
+        let internet = Internet::try_from_network_parts(NetworkProtocol::Ptp, &payload)
+            .expect("Delay_Req decode");
+        assert_eq!(internet.protocol_name, "PTP");
+        assert!(internet.source.is_none() && internet.payload_protocol.is_none());
+        assert!(matches!(internet.details, Some(InternetDetails::Ptp(_))));
+    }
+
+    /// Synthetique : version ou type inconnus ne sont pas une corruption,
+    /// une troncature si.
+    #[test]
+    fn unknown_ptp_version_or_type_is_unsupported_but_truncation_is_corrupt() {
+        let payload = hex::decode(PTP_DELAY_REQ).unwrap();
+        let mut future_version = payload.clone();
+        future_version[1] = 0x03;
+        let mut reserved_type = payload.clone();
+        reserved_type[0] = 0x05;
+        for bytes in [future_version, reserved_type] {
+            assert!(matches!(
+                Internet::try_from_network_parts(NetworkProtocol::Ptp, &bytes),
+                Err(InternetError::UnsupportedProtocol)
+            ));
+        }
+        assert!(matches!(
+            Internet::try_from_network_parts(NetworkProtocol::Ptp, &payload[..20]),
+            Err(InternetError::PtpError(
+                PtpPacketParseError::Truncated { .. }
+            ))
+        ));
+    }
+
+    /// Trame reelle (`goose/iti_GOOSE_DEMO.pcap` trame 1, apres l'etiquette
+    /// VLAN 10) : dix booleens d'un simulateur.
+    const GOOSE_DEMO: &str = concat!(
+        "2000006c0000000061628003313131810500000027108203323232830333333384084d",
+        "dda51adbe76d008505000000000186050000000001870100880500000000018901008a",
+        "05000000000aab1e830100830100830100830100830100830100830100830100830100",
+        "830100"
+    );
+
+    #[test]
+    fn goose_on_ethertype_0x88b8_keeps_the_decoded_message_and_is_probed_blindly() {
+        let payload = hex::decode(GOOSE_DEMO).unwrap();
+        let internet =
+            Internet::try_from_network_parts(NetworkProtocol::Goose, &payload).expect("GOOSE");
+        assert_eq!(internet.protocol_name, "GOOSE");
+        assert!(internet.source.is_none() && internet.payload_protocol.is_none());
+        let Some(InternetDetails::Goose(packet)) = &internet.details else {
+            panic!("details GOOSE attendus");
+        };
+        assert_eq!(
+            (packet.app_id, packet.pdu.num_dat_set_entries),
+            (0x2000, 10)
+        );
+        // Sans EtherType, la sonde aveugle la reconnait aussi.
+        let probed = Internet::try_from(payload.as_slice()).expect("sonde aveugle");
+        assert_eq!(probed.protocol_name, "GOOSE");
+        // Une trame coupee est corrompue, pas inconnue.
+        assert!(matches!(
+            Internet::try_from_network_parts(NetworkProtocol::Goose, &payload[..100]),
+            Err(InternetError::GooseError(
+                crate::errors::internet::goose::GooseParseError::LengthMismatch { .. }
+            ))
+        ));
+    }
+
+    /// LLDPDU minimal (#177) : chassis MAC `00:11:22:33:44:55`, port
+    /// `eth0`, TTL 120, End of LLDPDU, puis le bourrage d'une trame courte.
+    const LLDP_MINIMAL: &str = "020704001122334455040505657468300602007800000000000000";
+
+    #[test]
+    fn lldp_on_ethertype_0x88cc_keeps_the_decoded_lldpdu_and_is_probed_blindly() {
+        let payload = hex::decode(LLDP_MINIMAL).unwrap();
+        let internet =
+            Internet::try_from_network_parts(NetworkProtocol::Lldp, &payload).expect("LLDP");
+        assert_eq!(internet.protocol_name, "LLDP");
+        assert!(internet.source.is_none() && internet.payload_protocol.is_none());
+        let Some(InternetDetails::Lldp(packet)) = &internet.details else {
+            panic!("details LLDP attendus");
+        };
+        assert_eq!(packet.port_id.as_text(), Some("eth0"));
+        assert_eq!(packet.time_to_live, 120);
+        assert_eq!(packet.padding.len(), 5);
+        // Sans EtherType, la sonde aveugle le reconnait aussi.
+        let probed = Internet::try_from(payload.as_slice()).expect("sonde aveugle");
+        assert_eq!(probed.protocol_name, "LLDP");
+        // Coupe au milieu du Port ID : corrompu, pas inconnu.
+        assert!(matches!(
+            Internet::try_from_network_parts(NetworkProtocol::Lldp, &payload[..12]),
+            Err(InternetError::LldpError(
+                crate::errors::internet::lldp::LldpParseError::TlvOverflow { tlv_type: 2, .. }
+            ))
+        ));
+    }
+    use crate::parse::transport::protocols::TransportProtocol;
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    /// Issue #9 : aides multicast / diffusion limitee au niveau L3.
+    #[test]
+    fn destination_multicast_and_limited_broadcast_helpers() {
+        let mut internet = Internet {
+            source: Some(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10))),
+            source_type: Some(IpType::Private),
+            destination: Some(IpAddr::V4(Ipv4Addr::new(224, 0, 0, 251))),
+            destination_type: Some(IpType::Multicast),
+            protocol_name: "IPv4",
+            payload_protocol: None,
+            payload: &[],
+            details: None,
+        };
+        assert!(internet.destination_is_multicast());
+        assert!(!internet.destination_is_limited_broadcast());
+
+        internet.destination = Some(IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255)));
+        internet.destination_type = Some(IpType::Broadcast);
+        assert!(internet.destination_is_limited_broadcast());
+        assert!(!internet.destination_is_multicast());
+    }
+
+    fn ipv4_udp_packet(flags_fragment: u16) -> Vec<u8> {
+        vec![
+            0x45, // Version + IHL
+            0x00, // DSCP/ECN
+            0x00,
+            0x20, // Total Length = 32
+            0x12,
+            0x34, // Identification
+            (flags_fragment >> 8) as u8,
+            flags_fragment as u8,
+            64, // TTL
+            17, // Protocol = UDP
+            0x00,
+            0x00, // Header checksum
+            192,
+            168,
+            1,
+            10, // Source IP
+            192,
+            168,
+            1,
+            20, // Destination IP
+            0x30,
+            0x39, // UDP source port
+            0x00,
+            0x35, // UDP destination port
+            0x00,
+            0x0c, // UDP length
+            0x00,
+            0x00, // UDP checksum
+            0xde,
+            0xad,
+            0xbe,
+            0xef, // UDP payload or fragment bytes
+        ]
+    }
+
+    #[test]
+    fn test_internet_try_from_empty_packet() {
+        let packet: &[u8] = &[];
+        let result = Internet::try_from(packet);
+
+        assert!(matches!(result, Err(InternetError::EmptyPacket)));
+    }
+
+    #[test]
+    fn test_internet_try_from_arp() {
+        // ARP request minimal valide :
+        // HTYPE=1 (Ethernet), PTYPE=0x0800 (IPv4), HLEN=6, PLEN=4, OPER=1 (request)
+        // Sender MAC = 00:11:22:33:44:55
+        // Sender IP  = 192.168.1.10
+        // Target MAC = 00:00:00:00:00:00
+        // Target IP  = 192.168.1.1
+        let packet = vec![
+            0x00, 0x01, // HTYPE
+            0x08, 0x00, // PTYPE
+            0x06, // HLEN
+            0x04, // PLEN
+            0x00, 0x01, // OPER
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, // Sender MAC
+            192, 168, 1, 10, // Sender IP
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Target MAC
+            192, 168, 1, 1, // Target IP
+        ];
+
+        let result = Internet::try_from(packet.as_slice()).unwrap();
+
+        assert_eq!(
+            result.source,
+            Some(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10)))
+        );
+        assert_eq!(
+            result.destination,
+            Some(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)))
+        );
+        assert_eq!(result.source_type, Some(IpType::from_ip("192.168.1.10")));
+        assert_eq!(
+            result.destination_type,
+            Some(IpType::from_ip("192.168.1.1"))
+        );
+        assert_eq!(result.protocol_name, "ARP");
+        assert_eq!(result.payload_protocol, None);
+        assert!(result.payload.is_empty());
+    }
+
+    #[test]
+    fn test_internet_try_from_ipv4_tcp() {
+        // Header IPv4 minimal valide (20 octets), protocol = TCP (6)
+        // Version=4, IHL=5, Total Length=20
+        // Source=192.168.1.10, Destination=192.168.1.20
+        let packet = vec![
+            0x45, // Version + IHL
+            0x00, // DSCP/ECN
+            0x00, 0x14, // Total Length = 20
+            0x12, 0x34, // Identification
+            0x00, 0x00, // Flags + Fragment offset
+            64,   // TTL
+            6,    // Protocol = TCP
+            0x00, 0x00, // Header checksum
+            192, 168, 1, 10, // Source IP
+            192, 168, 1, 20, // Destination IP
+        ];
+
+        let result = Internet::try_from(packet.as_slice()).unwrap();
+
+        assert_eq!(
+            result.source,
+            Some(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10)))
+        );
+        assert_eq!(
+            result.destination,
+            Some(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 20)))
+        );
+        assert_eq!(result.source_type, Some(IpType::from_ip("192.168.1.10")));
+        assert_eq!(
+            result.destination_type,
+            Some(IpType::from_ip("192.168.1.20"))
+        );
+        assert_eq!(result.protocol_name, "IPv4");
+        assert_eq!(result.payload_protocol, Some(TransportProtocol::Tcp));
+        assert!(result.payload.is_empty());
+    }
+
+    #[test]
+    fn test_internet_try_from_ipv4_udp_not_fragmented_keeps_transport_protocol() {
+        let packet = ipv4_udp_packet(0);
+
+        let result = Internet::try_from(packet.as_slice()).unwrap();
+
+        assert_eq!(result.protocol_name, "IPv4");
+        assert_eq!(result.payload_protocol, Some(TransportProtocol::Udp));
+    }
+
+    #[test]
+    fn test_internet_try_from_ipv4_initial_fragment_skips_transport_protocol() {
+        let packet = ipv4_udp_packet(0x2000);
+
+        let result = Internet::try_from(packet.as_slice()).unwrap();
+
+        assert_eq!(result.protocol_name, "IPv4");
+        assert_eq!(result.payload_protocol, None);
+    }
+
+    #[test]
+    fn test_internet_try_from_ipv4_non_initial_fragment_skips_transport_protocol() {
+        let packet = ipv4_udp_packet(1);
+
+        let result = Internet::try_from(packet.as_slice()).unwrap();
+
+        assert_eq!(result.protocol_name, "IPv4");
+        assert_eq!(result.payload_protocol, None);
+    }
+
+    #[test]
+    fn test_internet_try_from_ipv6_udp() {
+        // Header IPv6 minimal valide (40 octets), next_header = UDP (17), payload length = 0
+        let packet = vec![
+            0x60, 0x00, 0x00, 0x00, // Version, Traffic Class, Flow Label
+            0x00, 0x00, // Payload Length = 0
+            17,   // Next Header = UDP
+            64,   // Hop Limit
+            // Source IP = 2001:db8::1
+            0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x01, // Destination IP = 2001:db8::2
+            0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x02,
+        ];
+
+        let result = Internet::try_from(packet.as_slice()).unwrap();
+
+        assert_eq!(
+            result.source,
+            Some(IpAddr::V6(Ipv6Addr::new(0x2001, 0x0db8, 0, 0, 0, 0, 0, 1)))
+        );
+        assert_eq!(
+            result.destination,
+            Some(IpAddr::V6(Ipv6Addr::new(0x2001, 0x0db8, 0, 0, 0, 0, 0, 2)))
+        );
+        assert_eq!(result.source_type, Some(IpType::from_ip("2001:db8::1")));
+        assert_eq!(
+            result.destination_type,
+            Some(IpType::from_ip("2001:db8::2"))
+        );
+        assert_eq!(result.protocol_name, "IPv6");
+        assert_eq!(result.payload_protocol, Some(TransportProtocol::Udp));
+        assert!(result.payload.is_empty());
+    }
+
+    #[test]
+    fn test_internet_try_from_unsupported_protocol() {
+        // Données volontairement invalides pour ARP / IPv4 / IPv6 / Profinet
+        let packet = vec![0xff, 0xaa, 0xbb, 0xcc, 0xdd, 0xee];
+
+        let result = Internet::try_from(packet.as_slice());
+
+        assert!(matches!(result, Err(InternetError::UnsupportedProtocol)));
+    }
+
+    #[test]
+    fn test_internet_partial_eq_ignores_payload() {
+        let a = Internet {
+            source: Some(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10))),
+            source_type: Some(IpType::from_ip("192.168.1.10")),
+            destination: Some(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 20))),
+            destination_type: Some(IpType::from_ip("192.168.1.20")),
+            protocol_name: "IPv4",
+            payload_protocol: Some(TransportProtocol::Tcp),
+            payload: &[1, 2, 3, 4],
+            details: None,
+        };
+
+        let b = Internet {
+            source: Some(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10))),
+            source_type: Some(IpType::from_ip("192.168.1.10")),
+            destination: Some(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 20))),
+            destination_type: Some(IpType::from_ip("192.168.1.20")),
+            protocol_name: "IPv4",
+            payload_protocol: Some(TransportProtocol::Tcp),
+            payload: &[9, 9, 9, 9],
+            details: None,
+        };
+
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_internet_hash_ignores_payload() {
+        let a = Internet {
+            source: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+            source_type: Some(IpType::from_ip("10.0.0.1")),
+            destination: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2))),
+            destination_type: Some(IpType::from_ip("10.0.0.2")),
+            protocol_name: "IPv4",
+            payload_protocol: Some(TransportProtocol::Udp),
+            payload: &[1, 2, 3],
+            details: None,
+        };
+
+        let b = Internet {
+            source: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+            source_type: Some(IpType::from_ip("10.0.0.1")),
+            destination: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2))),
+            destination_type: Some(IpType::from_ip("10.0.0.2")),
+            protocol_name: "IPv4",
+            payload_protocol: Some(TransportProtocol::Udp),
+            payload: &[99, 88, 77],
+            details: None,
+        };
+
+        let mut hasher_a = DefaultHasher::new();
+        let mut hasher_b = DefaultHasher::new();
+
+        a.hash(&mut hasher_a);
+        b.hash(&mut hasher_b);
+
+        assert_eq!(hasher_a.finish(), hasher_b.finish());
+    }
+
+    #[test]
+    fn test_internet_partial_eq_detects_difference() {
+        let a = Internet {
+            source: Some(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10))),
+            source_type: Some(IpType::from_ip("192.168.1.10")),
+            destination: Some(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 20))),
+            destination_type: Some(IpType::from_ip("192.168.1.20")),
+            protocol_name: "IPv4",
+            payload_protocol: Some(TransportProtocol::Tcp),
+            payload: &[],
+            details: None,
+        };
+
+        let b = Internet {
+            source: Some(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 11))),
+            source_type: Some(IpType::from_ip("192.168.1.11")),
+            destination: Some(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 20))),
+            destination_type: Some(IpType::from_ip("192.168.1.20")),
+            protocol_name: "IPv4",
+            payload_protocol: Some(TransportProtocol::Tcp),
+            payload: &[],
+            details: None,
+        };
+
+        assert_ne!(a, b);
+    }
+}

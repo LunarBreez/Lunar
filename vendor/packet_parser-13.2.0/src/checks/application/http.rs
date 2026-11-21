@@ -1,0 +1,328 @@
+// Copyright (c) 2026 Cyprien Avico avicocyprien@yahoo.com
+//
+// Licensed under the MIT License <LICENSE-MIT or http://opensource.org/licenses/MIT>.
+// This file may not be copied, modified, or distributed except according to those terms.
+
+use crate::errors::application::http::HttpParseError;
+
+/// Separator between the head (start line + headers) and the body.
+const HEAD_BODY_SEPARATOR: &str = "\r\n\r\n";
+
+/// Validates that the payload is UTF-8 and returns it as a borrowed `&str`.
+///
+/// The validation is done once with `std::str::from_utf8`: no allocation,
+/// no lossy replacement of invalid bytes.
+pub fn parse_payload_as_utf8(payload: &[u8]) -> Result<&str, HttpParseError> {
+    std::str::from_utf8(payload).map_err(|_| HttpParseError::InvalidUtf8)
+}
+
+/// Coupe le payload autour du premier `CRLF CRLF` : la tete (ligne de depart
+/// et en-tetes) et le corps, en octets. Sans separateur, tout le payload est
+/// la tete et le corps est vide. Seule la tete est ensuite validee en UTF-8
+/// (#176) : le corps peut etre binaire (image, gzip).
+pub fn split_head_body_bytes(payload: &[u8]) -> (&[u8], &[u8]) {
+    let separator = HEAD_BODY_SEPARATOR.as_bytes();
+    match payload
+        .windows(separator.len())
+        .position(|window| window == separator)
+    {
+        Some(index) => (&payload[..index], &payload[index + separator.len()..]),
+        None => (payload, &[]),
+    }
+}
+
+/// Exige un code de statut de trois chiffres (RFC 9112 §4 : `status-code =
+/// 3DIGIT`), et le rend. Trois chiffres exactement, et pas une version
+/// stricte seule, gardent un texte quelconque commencant par `HTTP/1.1 `
+/// hors de HTTP.
+pub fn require_status_code(part: Option<&str>) -> Result<u16, HttpParseError> {
+    let code = part.ok_or(HttpParseError::MissingStatusCode)?;
+    if code.len() != 3 || !code.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(HttpParseError::InvalidStatusCode(code.to_string()));
+    }
+    code.parse()
+        .map_err(|_| HttpParseError::InvalidStatusCode(code.to_string()))
+}
+
+/// Standard HTTP request methods (RFC 9110) accepted by the parser.
+const HTTP_METHODS: [&str; 9] = [
+    "GET", "HEAD", "POST", "PUT", "DELETE", "CONNECT", "OPTIONS", "TRACE", "PATCH",
+];
+
+/// Requires the HTTP method token to be present and to be a standard HTTP
+/// method, then returns it borrowed. Rejecting unknown methods keeps random
+/// text payloads from being classified as HTTP.
+pub fn require_method(part: Option<&str>) -> Result<&str, HttpParseError> {
+    let method = part.ok_or(HttpParseError::MissingMethod)?;
+    if !HTTP_METHODS.contains(&method) {
+        return Err(HttpParseError::InvalidMethod(method.to_string()));
+    }
+    Ok(method)
+}
+
+/// Requires the URI token to be present and returns it borrowed.
+pub fn require_uri(part: Option<&str>) -> Result<&str, HttpParseError> {
+    part.ok_or(HttpParseError::MissingUri)
+}
+
+/// Requires the HTTP version token to be present and shaped like `HTTP/x.y`,
+/// then returns it borrowed.
+///
+/// The digits are checked, not just the `HTTP/` prefix: accepting `HTTP/zzz`
+/// let arbitrary text be classified as an HTTP request line.
+pub fn require_version(part: Option<&str>) -> Result<&str, HttpParseError> {
+    let version = part.ok_or(HttpParseError::MissingVersion)?;
+    let invalid = || HttpParseError::InvalidVersion(version.to_string());
+
+    let digits = version.strip_prefix("HTTP/").ok_or_else(invalid)?;
+    let (major, minor) = match digits.split_once('.') {
+        Some((major, minor)) => (major, Some(minor)),
+        None => (digits, None),
+    };
+
+    let is_single_digit =
+        |part: &str| part.len() == 1 && part.starts_with(|c: char| c.is_ascii_digit());
+    if !is_single_digit(major) || minor.is_some_and(|minor| !is_single_digit(minor)) {
+        return Err(invalid());
+    }
+    Ok(version)
+}
+
+/// Garde a cout constant de la sonde HTTP (#249) : ce payload peut-il
+/// commencer une requete ? Le decodeur exige que le premier jeton de la
+/// premiere ligne soit une methode standard, et `split_whitespace` saute
+/// les blancs qui le precedent. La garde saute donc les memes blancs, puis
+/// compare le debut aux methodes.
+///
+/// Elle ne refuse que ce que `parse_http_request` refuserait. Sans elle, le
+/// decodeur cherche `CRLF CRLF` dans tout le payload puis valide la tete en
+/// UTF-8 avant de regarder la methode : chaque segment TCP non reconnu
+/// payait deux parcours complets (1,2 µs pour 1 208 octets).
+pub fn may_start_request(payload: &[u8]) -> bool {
+    let start = skip_leading_whitespace(payload);
+    HTTP_METHODS
+        .iter()
+        .any(|method| start.starts_with(method.as_bytes()))
+}
+
+/// Garde a cout constant de la sonde HTTP (#249) : ce payload peut-il
+/// commencer une reponse ? Le decodeur exige une version `HTTP/x.y` en
+/// premier jeton de la ligne de statut, sans blanc devant.
+pub fn may_start_response(payload: &[u8]) -> bool {
+    payload.starts_with(b"HTTP/")
+}
+
+/// Le payload sans ses blancs de tete, au sens de [`char::is_whitespace`]
+/// (celui de `split_whitespace`), lus directement dans leur encodage UTF-8.
+/// Un octet qui ne commence pas un blanc arrete la lecture : le cout est
+/// constant sur tout payload qui ne commence pas par un blanc.
+fn skip_leading_whitespace(mut bytes: &[u8]) -> &[u8] {
+    loop {
+        let width = match bytes {
+            // U+0009 a U+000D, U+0020.
+            [b'\t'..=b'\r' | b' ', ..] => 1,
+            // U+0085, U+00A0.
+            [0xC2, 0x85 | 0xA0, ..] => 2,
+            // U+1680.
+            [0xE1, 0x9A, 0x80, ..]
+            // U+2000 a U+200A, U+2028, U+2029, U+202F.
+            | [0xE2, 0x80, 0x80..=0x8A | 0xA8 | 0xA9 | 0xAF, ..]
+            // U+205F.
+            | [0xE2, 0x81, 0x9F, ..]
+            // U+3000.
+            | [0xE3, 0x80, 0x80, ..] => 3,
+            _ => return bytes,
+        };
+        bytes = bytes.get(width..).unwrap_or_default();
+    }
+}
+
+/// Requires a header name or value part to be present and returns it borrowed.
+pub fn require_header_part(part: Option<&str>) -> Result<&str, HttpParseError> {
+    part.ok_or(HttpParseError::InvalidHeader)
+}
+
+/// Checks that a header line contains a `:` separator and returns the
+/// borrowed `(name, value)` pair, both trimmed of surrounding whitespace.
+/// A line without a `:` yields `InvalidHeader`.
+pub fn extract_header_line(line: &str) -> Result<(&str, &str), HttpParseError> {
+    let mut header_parts = line.splitn(2, ':');
+    let name = require_header_part(header_parts.next())?.trim();
+    let value = require_header_part(header_parts.next())?.trim();
+    Ok((name, value))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// La table de `skip_leading_whitespace` est exactement
+    /// `char::is_whitespace` : un blanc oublie ferait refuser par la garde
+    /// une requete que le decodeur accepte.
+    #[test]
+    fn skip_leading_whitespace_matches_char_is_whitespace() {
+        let mut buffer = [0u8; 4];
+        for character in (0..=u32::from(char::MAX)).filter_map(char::from_u32) {
+            let encoded = character.encode_utf8(&mut buffer).as_bytes();
+            assert_eq!(
+                skip_leading_whitespace(encoded).is_empty(),
+                character.is_whitespace(),
+                "U+{:04X}",
+                u32::from(character)
+            );
+        }
+    }
+
+    #[test]
+    fn request_guard_skips_whitespace_and_wants_a_method() {
+        assert!(may_start_request(b"GET / HTTP/1.1\r\n\r\n"));
+        assert!(may_start_request(b" \t\nPATCH /x HTTP/1.1"));
+        assert!(may_start_request(
+            "\u{a0}\u{2003}\u{3000}DELETE /".as_bytes()
+        ));
+        assert!(!may_start_request(b""));
+        assert!(!may_start_request(b"   "));
+        assert!(!may_start_request(b"get / HTTP/1.1"));
+        assert!(!may_start_request(b"INVALID REQUEST"));
+        assert!(!may_start_request(b"HTTP/1.1 200 OK"));
+        assert!(!may_start_request(&[0x17, 0x03, 0x03, 0x00, 0x20]));
+    }
+
+    #[test]
+    fn response_guard_wants_the_version_first() {
+        assert!(may_start_response(b"HTTP/1.1 200 OK\r\n\r\n"));
+        assert!(!may_start_response(b" HTTP/1.1 200 OK"));
+        assert!(!may_start_response(b"HTTP"));
+        assert!(!may_start_response(b"GET / HTTP/1.1"));
+    }
+
+    #[test]
+    fn test_parse_payload_as_utf8_valid() {
+        let payload = b"GET / HTTP/1.1";
+        let result = parse_payload_as_utf8(payload).expect("valid UTF-8");
+        assert_eq!(result, "GET / HTTP/1.1");
+        // Zero-copy: the returned str borrows the input bytes.
+        assert_eq!(result.as_ptr(), payload.as_ptr());
+    }
+
+    #[test]
+    fn test_parse_payload_as_utf8_invalid() {
+        let payload = [0x47, 0x45, 0x54, 0xFF, 0xFE];
+        assert_eq!(
+            parse_payload_as_utf8(&payload),
+            Err(HttpParseError::InvalidUtf8)
+        );
+    }
+
+    #[test]
+    fn test_split_head_body_bytes() {
+        assert_eq!(
+            split_head_body_bytes(b"HTTP/1.1 200 OK\r\nA: b\r\n\r\n\xff\xfe"),
+            (&b"HTTP/1.1 200 OK\r\nA: b"[..], &b"\xff\xfe"[..])
+        );
+        assert_eq!(
+            split_head_body_bytes(b"HTTP/1.1 200 OK\r\n"),
+            (&b"HTTP/1.1 200 OK\r\n"[..], &b""[..])
+        );
+    }
+
+    #[test]
+    fn test_require_status_code() {
+        assert_eq!(require_status_code(Some("200")), Ok(200));
+        assert_eq!(require_status_code(Some("404")), Ok(404));
+        assert_eq!(
+            require_status_code(None),
+            Err(HttpParseError::MissingStatusCode)
+        );
+        for code in ["20", "2000", "abc", "20a", " 200", "٢٠٠"] {
+            assert_eq!(
+                require_status_code(Some(code)),
+                Err(HttpParseError::InvalidStatusCode(code.to_string())),
+                "{code}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_require_method() {
+        assert_eq!(require_method(Some("GET")), Ok("GET"));
+        assert_eq!(require_method(None), Err(HttpParseError::MissingMethod));
+    }
+
+    #[test]
+    fn test_require_uri() {
+        assert_eq!(require_uri(Some("/index.html")), Ok("/index.html"));
+        assert_eq!(require_uri(None), Err(HttpParseError::MissingUri));
+    }
+
+    #[test]
+    fn test_require_version() {
+        assert_eq!(require_version(Some("HTTP/1.1")), Ok("HTTP/1.1"));
+        assert_eq!(require_version(None), Err(HttpParseError::MissingVersion));
+    }
+
+    #[test]
+    fn test_require_version_accepts_digit_forms() {
+        for version in ["HTTP/0.9", "HTTP/1.0", "HTTP/1.1", "HTTP/2", "HTTP/3"] {
+            assert_eq!(require_version(Some(version)), Ok(version));
+        }
+    }
+
+    #[test]
+    fn test_require_version_rejects_malformed_forms() {
+        // Le préfixe seul ne suffit pas : ce qui suit doit être un chiffre,
+        // éventuellement suivi d'un point et d'un second chiffre.
+        for version in [
+            "HTTP/zzz",
+            "HTTP/",
+            "HTTP/1.",
+            "HTTP/.1",
+            "HTTP/11",
+            "HTTP/1.1.1",
+            "HTTP/1x",
+            "HTTP/ 1",
+        ] {
+            assert_eq!(
+                require_version(Some(version)),
+                Err(HttpParseError::InvalidVersion(version.to_string())),
+                "{version} devrait être rejeté"
+            );
+        }
+    }
+
+    #[test]
+    fn test_require_header_part() {
+        assert_eq!(require_header_part(Some("Host")), Ok("Host"));
+        assert_eq!(
+            require_header_part(None),
+            Err(HttpParseError::InvalidHeader)
+        );
+    }
+
+    #[test]
+    fn test_extract_header_line_valid() {
+        assert_eq!(
+            extract_header_line("Host: www.example.com"),
+            Ok(("Host", "www.example.com"))
+        );
+        // No space after the colon, and surrounding whitespace is trimmed.
+        assert_eq!(extract_header_line("Accept:*/*"), Ok(("Accept", "*/*")));
+        assert_eq!(extract_header_line("  Host :  a  "), Ok(("Host", "a")));
+    }
+
+    #[test]
+    fn test_extract_header_line_keeps_extra_colons_in_value() {
+        assert_eq!(
+            extract_header_line("Referer: http://example.com/"),
+            Ok(("Referer", "http://example.com/"))
+        );
+    }
+
+    #[test]
+    fn test_extract_header_line_missing_colon() {
+        assert_eq!(
+            extract_header_line("NotAHeader"),
+            Err(HttpParseError::InvalidHeader)
+        );
+    }
+}

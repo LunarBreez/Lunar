@@ -1,0 +1,65 @@
+// Copyright (c) 2026 Cyprien Avico avicocyprien@yahoo.com
+//
+// Licensed under the MIT License <LICENSE-MIT or http://opensource.org/licenses/MIT>.
+// This file may not be copied, modified, or distributed except according to those terms.
+
+use arp::ArpError;
+use thiserror::Error;
+pub mod arp;
+pub mod goose;
+pub mod ipv4;
+pub mod ipv6;
+pub mod lldp;
+pub mod profinet;
+/// Errors that can occur when parsing or processing internet layer protocols
+#[derive(Debug, Error, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum InternetError {
+    /// Error related to ARP protocol
+    #[error("ARP error: {0}")]
+    ArpError(#[from] ArpError),
+
+    /// Error related to IPv4 parsing
+    #[error("IPv4 error: {0}")]
+    Ipv4Error(#[from] ipv4::Ipv4Error),
+
+    /// Error related to IPv6 parsing
+    #[error("IPv6 error: {0}")]
+    Ipv6Error(#[from] ipv6::Ipv6Error),
+
+    /// Error related to Profinet parsing
+    #[error("Profinet error: {0}")]
+    ProfinetError(#[from] profinet::ProfinetPacketError),
+
+    /// The packet is too short to be a valid internet protocol packet
+    #[error("Invalid packet length: expected at least {expected} bytes, got {actual} bytes")]
+    InvalidLength { expected: usize, actual: usize },
+
+    /// The packet is empty
+    #[error("Empty packet")]
+    EmptyPacket,
+
+    /// The protocol is not supported
+    #[error("Unsupported transport protocol")]
+    UnsupportedProtocol,
+
+    /// The packet format is invalid
+    #[error("Invalid packet format: {0}")]
+    InvalidFormat(String),
+
+    /// The checksum is invalid
+    #[error("Invalid checksum")]
+    InvalidChecksum,
+
+    /// Error related to PTP parsing on EtherType 0x88F7
+    #[error("PTP error: {0}")]
+    PtpError(#[from] crate::errors::application::ptp::PtpPacketParseError),
+
+    /// Error related to GOOSE parsing on EtherType 0x88B8
+    #[error("GOOSE error: {0}")]
+    GooseError(#[from] goose::GooseParseError),
+
+    /// Error related to LLDP parsing on EtherType 0x88CC
+    #[error("LLDP error: {0}")]
+    LldpError(#[from] lldp::LldpParseError),
+}

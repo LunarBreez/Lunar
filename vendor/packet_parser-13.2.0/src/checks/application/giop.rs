@@ -1,0 +1,464 @@
+// Copyright (c) 2026 Cyprien Avico avicocyprien@yahoo.com
+//
+// Licensed under the MIT License <LICENSE-MIT or http://opensource.org/licenses/MIT>.
+// This file may not be copied, modified, or distributed except according to those terms.
+
+use std::str;
+
+use crate::errors::application::giop::GiopParseError;
+
+pub const GIOP_HEADER_LEN: usize = 12;
+pub const GIOP_MAGIC: &[u8; 4] = b"GIOP";
+
+/// Minimum encoded size of one service context entry:
+/// context_id (u32) + context_data length (u32).
+pub const SERVICE_CONTEXT_MIN_LEN: usize = 8;
+
+/// Validates that the buffer is large enough to hold a GIOP header.
+pub fn ensure_min_len(payload: &[u8]) -> Result<(), GiopParseError> {
+    if payload.len() < GIOP_HEADER_LEN {
+        return Err(GiopParseError::InvalidSize);
+    }
+
+    Ok(())
+}
+
+/// Extracts and validates the "GIOP" magic bytes.
+///
+/// The caller must have validated that the buffer holds at least
+/// [`GIOP_HEADER_LEN`] bytes (see [`ensure_min_len`]).
+pub fn parse_magic(payload: &[u8]) -> Result<[u8; 4], GiopParseError> {
+    if payload.len() < GIOP_MAGIC.len() {
+        return Err(GiopParseError::InvalidSize);
+    }
+
+    let magic = [payload[0], payload[1], payload[2], payload[3]];
+    if &magic != GIOP_MAGIC {
+        return Err(GiopParseError::InvalidMagic);
+    }
+
+    Ok(magic)
+}
+
+/// Validates the GIOP version. Only versions 1.0, 1.1 and 1.2 are supported.
+pub fn validate_version(major_version: u8, minor_version: u8) -> Result<(), GiopParseError> {
+    if major_version != 1 || minor_version > 2 {
+        return Err(GiopParseError::UnsupportedVersion(
+            major_version,
+            minor_version,
+        ));
+    }
+
+    Ok(())
+}
+
+/// Extracts and validates the GIOP version pair (major, minor).
+///
+/// Expects the two version bytes of the header (offsets 4..6). The internal
+/// length guard is unreachable once [`ensure_min_len`] has passed; it only
+/// protects out-of-contract callers.
+pub fn extract_version(payload: &[u8]) -> Result<(u8, u8), GiopParseError> {
+    if payload.len() < 2 {
+        return Err(GiopParseError::InvalidSize);
+    }
+
+    let (major_version, minor_version) = (payload[0], payload[1]);
+    validate_version(major_version, minor_version)?;
+
+    Ok((major_version, minor_version))
+}
+
+/// Extracts the GIOP flags byte (bit 0 = body endianness).
+///
+/// Pure extraction: no flag value is rejected (reserved bits are not
+/// validated by GIOP 1.x parsers); the `Result` only keeps the canonical
+/// `extract_*` shape.
+pub fn extract_flags(flags: &u8) -> Result<u8, GiopParseError> {
+    Ok(*flags)
+}
+
+/// Validates the message type byte (0..=7, see `GiopMessageType`) and
+/// returns it unchanged.
+pub fn validate_message_type(message_type: u8) -> Result<u8, GiopParseError> {
+    if message_type > 7 {
+        return Err(GiopParseError::UnknownMessageType(message_type));
+    }
+
+    Ok(message_type)
+}
+
+/// Extracts the message size in the byte order announced by the header
+/// flags (bit 0 : 1 = little-endian).
+///
+/// GIOP 1.x (CORBA formal/04-03-12 §9.4.1) encode `message_size`, comme le
+/// reste du message, dans l'endianness declaree par l'octet de flags. Les
+/// messages little-endian existent sur le terrain : la capture
+/// `pcaps_exemple/protocols/giop/corba.pcap` (trame 19, omniORB/MIOP) porte
+/// `d8 00 00 00` = 216, qu'une lecture big-endian transformerait en 3,6 Go
+/// annonces et rejetterait en `TruncatedBody`.
+///
+/// Expects the four length bytes of the header (offsets 8..12). The internal
+/// length guard is unreachable once [`ensure_min_len`] has passed; it only
+/// protects out-of-contract callers.
+pub fn extract_message_size(payload: &[u8], little_endian: bool) -> Result<u32, GiopParseError> {
+    if payload.len() < 4 {
+        return Err(GiopParseError::InvalidSize);
+    }
+
+    let bytes = [payload[0], payload[1], payload[2], payload[3]];
+    Ok(if little_endian {
+        u32::from_le_bytes(bytes)
+    } else {
+        u32::from_be_bytes(bytes)
+    })
+}
+
+/// Validates that a CDR read of `needed` bytes fits in the `remaining` bytes
+/// of the body.
+pub fn ensure_available(remaining: usize, needed: usize) -> Result<(), GiopParseError> {
+    if remaining < needed {
+        return Err(GiopParseError::UnexpectedEof);
+    }
+
+    Ok(())
+}
+
+/// Validates the TargetAddress discriminator (0 = KeyAddr, 1 = ProfileAddr,
+/// 2 = ReferenceAddr).
+pub fn validate_target_discriminator(discriminator: u16) -> Result<(), GiopParseError> {
+    if discriminator > 2 {
+        return Err(GiopParseError::UnknownTargetDiscriminator(discriminator));
+    }
+
+    Ok(())
+}
+
+/// Le message Fragment (type 7) n'existe qu'a partir de GIOP 1.1 : GIOP 1.0
+/// ne definit que les types 0 a 6 (CORBA 2.3 §15.4.1).
+///
+/// Le domaine d'un champ depend de la version du message : un decodeur qui
+/// l'ignore accepte, sur du trafic 1.0 malforme ou hostile, des valeurs que
+/// seule une version ulterieure definit. Meme regle pour
+/// [`validate_reply_status`] et [`validate_locate_status`].
+pub fn validate_message_type_in_version(
+    message_type: u8,
+    minor_version: u8,
+) -> Result<(), GiopParseError> {
+    if message_type == 7 && minor_version < 1 {
+        return Err(GiopParseError::MessageTypeNotInVersion {
+            message_type,
+            minor_version,
+        });
+    }
+
+    Ok(())
+}
+
+/// Validates the ReplyStatusType (CORBA formal/04-03-12 §15.4.3.1) : 0 =
+/// NO_EXCEPTION, 1 = USER_EXCEPTION, 2 = SYSTEM_EXCEPTION, 3 =
+/// LOCATION_FORWARD ; GIOP 1.2 ajoute 4 = LOCATION_FORWARD_PERM et 5 =
+/// NEEDS_ADDRESSING_MODE. Returns the value unchanged.
+pub fn validate_reply_status(status: u32, minor_version: u8) -> Result<u32, GiopParseError> {
+    let max = if minor_version >= 2 { 5 } else { 3 };
+    if status > max {
+        return Err(GiopParseError::UnknownReplyStatus {
+            status,
+            minor_version,
+        });
+    }
+
+    Ok(status)
+}
+
+/// Validates the LocateStatusType (§15.4.6.1) : 0 = UNKNOWN_OBJECT, 1 =
+/// OBJECT_HERE, 2 = OBJECT_FORWARD ; GIOP 1.2 ajoute 3 = OBJECT_FORWARD_PERM,
+/// 4 = LOC_SYSTEM_EXCEPTION et 5 = LOC_NEEDS_ADDRESSING_MODE. Returns the
+/// value unchanged.
+pub fn validate_locate_status(status: u32, minor_version: u8) -> Result<u32, GiopParseError> {
+    let max = if minor_version >= 2 { 5 } else { 2 };
+    if status > max {
+        return Err(GiopParseError::UnknownLocateStatus {
+            status,
+            minor_version,
+        });
+    }
+
+    Ok(status)
+}
+
+/// Minimum encoded size of one IOP::TaggedProfile : tag (u32) + profile_data
+/// length (u32).
+pub const TAGGED_PROFILE_MIN_LEN: usize = 8;
+
+/// Coherence check on the announced TaggedProfile count of an IOR, same
+/// rationale as [`validate_service_context_count`] : bounds allocations and
+/// loops against forged counts before any entry is read.
+pub fn validate_profile_count(count: usize, remaining: usize) -> Result<(), GiopParseError> {
+    if count > remaining / TAGGED_PROFILE_MIN_LEN {
+        return Err(GiopParseError::InvalidProfileCount {
+            count,
+            available: remaining,
+        });
+    }
+
+    Ok(())
+}
+
+/// Coherence check on the announced service context count: each entry needs
+/// at least [`SERVICE_CONTEXT_MIN_LEN`] bytes, so the count cannot exceed
+/// `remaining / SERVICE_CONTEXT_MIN_LEN`. This bounds allocations against
+/// forged counts before any entry is read.
+pub fn validate_service_context_count(
+    count: usize,
+    remaining: usize,
+) -> Result<(), GiopParseError> {
+    if count > remaining / SERVICE_CONTEXT_MIN_LEN {
+        return Err(GiopParseError::InvalidServiceContextCount {
+            count,
+            available: remaining,
+        });
+    }
+
+    Ok(())
+}
+
+/// Validates a CDR string body as UTF-8, trimming the trailing NUL terminator
+/// if present, and returns it as a borrowed `&str` (zero-copy).
+pub fn parse_cdr_string(bytes: &[u8]) -> Result<&str, GiopParseError> {
+    let content = match bytes.split_last() {
+        Some((0, rest)) => rest,
+        _ => bytes,
+    };
+
+    str::from_utf8(content).map_err(|_| GiopParseError::InvalidUtf8)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ensure_min_len() {
+        assert!(ensure_min_len(&[0u8; GIOP_HEADER_LEN]).is_ok());
+        assert!(matches!(
+            ensure_min_len(&[0u8; GIOP_HEADER_LEN - 1]),
+            Err(GiopParseError::InvalidSize)
+        ));
+    }
+
+    #[test]
+    fn test_parse_magic() {
+        assert_eq!(parse_magic(b"GIOP\x01\x02"), Ok(*b"GIOP"));
+        assert!(matches!(
+            parse_magic(b"NOPE"),
+            Err(GiopParseError::InvalidMagic)
+        ));
+        assert!(matches!(
+            parse_magic(b"GI"),
+            Err(GiopParseError::InvalidSize)
+        ));
+    }
+
+    #[test]
+    fn test_validate_version() {
+        assert!(validate_version(1, 0).is_ok());
+        assert!(validate_version(1, 2).is_ok());
+        assert!(matches!(
+            validate_version(2, 0),
+            Err(GiopParseError::UnsupportedVersion(2, 0))
+        ));
+        assert!(matches!(
+            validate_version(1, 3),
+            Err(GiopParseError::UnsupportedVersion(1, 3))
+        ));
+    }
+
+    #[test]
+    fn test_extract_version() {
+        assert_eq!(extract_version(&[1, 0]), Ok((1, 0)));
+        assert_eq!(extract_version(&[1, 2]), Ok((1, 2)));
+        assert!(matches!(
+            extract_version(&[2, 0]),
+            Err(GiopParseError::UnsupportedVersion(2, 0))
+        ));
+        assert!(matches!(
+            extract_version(&[1, 3]),
+            Err(GiopParseError::UnsupportedVersion(1, 3))
+        ));
+        assert!(matches!(
+            extract_version(&[1]),
+            Err(GiopParseError::InvalidSize)
+        ));
+    }
+
+    #[test]
+    fn test_extract_flags() {
+        // Pure extraction: no flags value is ever rejected.
+        assert_eq!(extract_flags(&0x00), Ok(0x00));
+        assert_eq!(extract_flags(&0x01), Ok(0x01));
+        assert_eq!(extract_flags(&0xFF), Ok(0xFF));
+    }
+
+    #[test]
+    fn test_validate_message_type() {
+        assert_eq!(validate_message_type(0), Ok(0));
+        assert_eq!(validate_message_type(7), Ok(7));
+        assert!(matches!(
+            validate_message_type(8),
+            Err(GiopParseError::UnknownMessageType(8))
+        ));
+    }
+
+    #[test]
+    fn test_extract_message_size_respects_endianness() {
+        // Les octets de la trame 19 de corba.pcap : 216 en little-endian.
+        assert_eq!(extract_message_size(&[0xd8, 0, 0, 0], true), Ok(216));
+        assert_eq!(extract_message_size(&[0, 0, 0, 0xd8], false), Ok(216));
+        assert_eq!(
+            extract_message_size(&[0xd8, 0, 0, 0], false),
+            Ok(0xd800_0000)
+        );
+        assert!(matches!(
+            extract_message_size(&[0xd8, 0], true),
+            Err(GiopParseError::InvalidSize)
+        ));
+    }
+
+    #[test]
+    fn test_ensure_available() {
+        assert!(ensure_available(4, 4).is_ok());
+        assert!(ensure_available(8, 4).is_ok());
+        assert!(matches!(
+            ensure_available(3, 4),
+            Err(GiopParseError::UnexpectedEof)
+        ));
+    }
+
+    #[test]
+    fn test_validate_target_discriminator() {
+        assert!(validate_target_discriminator(0).is_ok());
+        assert!(validate_target_discriminator(1).is_ok());
+        assert!(validate_target_discriminator(2).is_ok());
+        assert!(matches!(
+            validate_target_discriminator(9),
+            Err(GiopParseError::UnknownTargetDiscriminator(9))
+        ));
+        // Plus de saturation a 255 : le short CDR est rapporte tel quel.
+        assert!(matches!(
+            validate_target_discriminator(0x0100),
+            Err(GiopParseError::UnknownTargetDiscriminator(0x0100))
+        ));
+    }
+
+    /// Le domaine de chaque champ suit la version du message : les statuts
+    /// que seul GIOP 1.2 definit sont refuses sur un message 1.0 ou 1.1.
+    #[test]
+    fn test_reply_and_locate_status_domains_follow_the_version() {
+        for minor in 0..=2 {
+            assert_eq!(validate_reply_status(0, minor), Ok(0));
+            assert_eq!(validate_reply_status(3, minor), Ok(3));
+            assert_eq!(validate_locate_status(2, minor), Ok(2));
+        }
+
+        // LOCATION_FORWARD_PERM et NEEDS_ADDRESSING_MODE : GIOP 1.2 seulement.
+        for status in [4, 5] {
+            assert_eq!(validate_reply_status(status, 2), Ok(status));
+            for minor in [0, 1] {
+                assert!(matches!(
+                    validate_reply_status(status, minor),
+                    Err(GiopParseError::UnknownReplyStatus { status: s, minor_version })
+                        if s == status && minor_version == minor
+                ));
+            }
+        }
+
+        // OBJECT_FORWARD_PERM, LOC_SYSTEM_EXCEPTION, LOC_NEEDS_ADDRESSING_MODE.
+        for status in [3, 4, 5] {
+            assert_eq!(validate_locate_status(status, 2), Ok(status));
+            for minor in [0, 1] {
+                assert!(matches!(
+                    validate_locate_status(status, minor),
+                    Err(GiopParseError::UnknownLocateStatus { status: s, .. }) if s == status
+                ));
+            }
+        }
+
+        // Au-dela du domaine de toute version.
+        assert!(matches!(
+            validate_reply_status(6, 2),
+            Err(GiopParseError::UnknownReplyStatus { status: 6, .. })
+        ));
+        assert!(matches!(
+            validate_locate_status(6, 2),
+            Err(GiopParseError::UnknownLocateStatus { status: 6, .. })
+        ));
+    }
+
+    /// Le message Fragment n'existe qu'a partir de GIOP 1.1.
+    #[test]
+    fn test_fragment_message_type_is_rejected_in_giop_1_0() {
+        assert!(matches!(
+            validate_message_type_in_version(7, 0),
+            Err(GiopParseError::MessageTypeNotInVersion {
+                message_type: 7,
+                minor_version: 0
+            })
+        ));
+        for minor in [1, 2] {
+            assert!(validate_message_type_in_version(7, minor).is_ok());
+        }
+        // Les types 0 a 6 existent dans les trois versions.
+        for message_type in 0..=6 {
+            for minor in 0..=2 {
+                assert!(validate_message_type_in_version(message_type, minor).is_ok());
+            }
+        }
+    }
+
+    #[test]
+    fn test_validate_profile_count() {
+        assert!(validate_profile_count(0, 0).is_ok());
+        assert!(validate_profile_count(2, 16).is_ok());
+        assert!(matches!(
+            validate_profile_count(3, 16),
+            Err(GiopParseError::InvalidProfileCount {
+                count: 3,
+                available: 16
+            })
+        ));
+        assert!(matches!(
+            validate_profile_count(usize::MAX, 8),
+            Err(GiopParseError::InvalidProfileCount { .. })
+        ));
+    }
+
+    #[test]
+    fn test_validate_service_context_count() {
+        assert!(validate_service_context_count(0, 0).is_ok());
+        assert!(validate_service_context_count(2, 16).is_ok());
+        assert!(matches!(
+            validate_service_context_count(3, 16),
+            Err(GiopParseError::InvalidServiceContextCount {
+                count: 3,
+                available: 16
+            })
+        ));
+        // Forged huge count must be rejected before any allocation.
+        assert!(matches!(
+            validate_service_context_count(usize::MAX, 8),
+            Err(GiopParseError::InvalidServiceContextCount { .. })
+        ));
+    }
+
+    #[test]
+    fn test_parse_cdr_string() {
+        assert_eq!(parse_cdr_string(b"op\0"), Ok("op"));
+        assert_eq!(parse_cdr_string(b"op"), Ok("op"));
+        assert_eq!(parse_cdr_string(b"\0"), Ok(""));
+        assert_eq!(parse_cdr_string(b""), Ok(""));
+        assert!(matches!(
+            parse_cdr_string(&[0xFF, 0xFE]),
+            Err(GiopParseError::InvalidUtf8)
+        ));
+    }
+}

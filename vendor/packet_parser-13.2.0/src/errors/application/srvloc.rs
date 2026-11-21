@@ -1,0 +1,45 @@
+// Copyright (c) 2026 Cyprien Avico avicocyprien@yahoo.com
+//
+// Licensed under the MIT License <LICENSE-MIT or http://opensource.org/licenses/MIT>.
+// This file may not be copied, modified, or distributed except according to those terms.
+
+use thiserror::Error;
+
+#[derive(Debug, Error, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SrvlocPacketParseError {
+    #[error("SRVLOC packet too short")]
+    InvalidPacketLength,
+
+    #[error("SRVLOC packet truncated: expected at least {expected_at_least} bytes, got {actual}")]
+    Truncated {
+        expected_at_least: usize,
+        actual: usize,
+    },
+
+    #[error("Unsupported SRVLOC version {0}")]
+    UnsupportedVersion(u8),
+
+    #[error("SRVLOC declared packet length {declared} does not match payload length {actual}")]
+    InconsistentPacketLength { declared: usize, actual: usize },
+
+    #[error("Unsupported SRVLOC v{version} function {function}")]
+    UnsupportedFunction { version: u8, function: u8 },
+
+    #[error("Invalid UTF-8 in SRVLOC field '{0}'")]
+    InvalidUtf8(&'static str),
+
+    #[error("SRVLOC v1 language {0:02x?} is not a two-letter ISO 639 code")]
+    InvalidLanguageCode([u8; 2]),
+
+    /// SLPv1 : un encodage de caracteres que le decodeur ne lit pas (#302).
+    #[error(
+        "SRVLOC v1 character encoding {0} is not read: expected 3 (US-ASCII), 4 (ISO-8859-1), 106 (UTF-8) or 1000 (UCS-2)"
+    )]
+    UnsupportedCharEncoding(u16),
+
+    /// SLPv1 : une chaine UCS-2 de longueur impaire, ou qui porte un code
+    /// de substitution (#302).
+    #[error("Invalid UCS-2 in SRVLOC field '{0}'")]
+    InvalidUcs2(&'static str),
+}

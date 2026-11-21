@@ -1,0 +1,13 @@
+# Chaîne d'approvisionnement : toute compilation prend ses dépendances dans le
+# dossier vendor/ commité, jamais sur crates.io. Vaut aussi pour le crate de
+# fuzzing, la CI et la release. cargo vérifie chaque fichier contre le
+# .cargo-checksum.json de son crate, et la CI contre crates.io
+# (script/vendor.sh --verify).
+#
+# Conséquence : `cargo update` ne voit plus crates.io. Les mises à jour passent
+# par script/vendor.sh --update.
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"

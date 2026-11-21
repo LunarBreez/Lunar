@@ -1,0 +1,3 @@
+# Sources vendorisées : octets intacts sur toutes les plateformes (cargo
+# vérifie leurs sommes), et hors des statistiques et des diffs par défaut.
+/vendor/** -text linguist-vendored

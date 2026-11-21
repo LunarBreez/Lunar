@@ -1,0 +1,3483 @@
+# Changelog
+
+Tous les changements notables du projet seront documentes dans ce fichier.
+
+Le format suit l'esprit de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), avec des sections simples par type de changement.
+
+## [Non publie]
+
+## [13.2.0] - 2026-11-19
+
+Mineure, sans rupture : un protocole ajoute, SIP, et une correction de
+Decode As pour EtherNet/IP sur TCP.
+
+### Ajoute
+
+- **SIP** (RFC 3261, #342) : etiquette `SIP`, decodeur zero copie
+  `parse::application::protocols::sip::SipMessage` et
+  `DecodeAsProtocol::Sip`.
+  - **Ce qui est lu.** La ligne de depart, requete ou reponse
+    (`SipStartLine`). La methode est l'une des 14 du registre IANA, casse
+    comprise ; la version `SIP/2.0` est lue sans casse ; le code va de 100
+    a 699.
+  - **Les en-tetes.** Via, From, To, Call-ID et CSeq sont exiges, en forme
+    longue ou compacte, et exposes en champs. La methode du CSeq doit etre
+    celle de la requete. Les autres en-tetes passent par `SipHeaders` :
+    `get` trouve la forme compacte depuis le nom long, et l'inverse. Un
+    en-tete replie est accepte et rendu tel quel.
+  - **Le corps** est coupe a Content-Length.
+  - **Detection.** Une regle aveugle, sur UDP comme sur TCP et sur tout
+    port, placee avant HTTP. Elle est disjointe de HTTP et de SSDP.
+  - **Corpus et oracle.** Le corpus recoit quatre captures dans
+    `pcaps_exemple/protocols/sip/` : deux du wiki Wireshark, dont un appel
+    fax avec MEGACO et T.38, un REGISTER de nDPI et un negatif, du HTTP sur
+    TCP 5060.
+    - 201 trames SIP, dont 20 de `The-Ultimate-PCAP.pcapng` qui sortaient
+      `Unknown`, sont comparees a tshark trame par trame
+      (`tests/sip_golden.rs`, `tools/sip_oracle.sh`).
+    - Nouvelle cible de fuzz `parse_sip`.
+  - **Limites, sans etat.**
+    - Une tete coupee entre deux segments TCP n'est pas reconnue, ni les
+      segments de continuation. Il n'existe aucune capture SIP sur TCP
+      reelle.
+    - Un fragment IPv4 n'est pas lu : la trame 15114 de l'Ultimate PCAP
+      est le premier fragment d'un INVITE de 2 017 octets.
+    - Les keep-alive du port 5060 ne sont pas lus.
+    - SIP sur TLS (5061) reste TLS.
+
+### Corrige
+
+- **Decode As EtherNet/IP sur TCP** (#288) : un port TCP declare
+  `DecodeAsProtocol::EthernetIp` lisait un seul message par segment, alors
+  que la regle aveugle TCP accepte, depuis la 13.1.0, des messages complets
+  qui pavent le segment. Un port declare etait donc plus strict que la
+  table sans port. Il prend desormais la sonde de la regle TCP ; sur UDP,
+  un datagramme porte toujours un seul message. L'etiquette ne changeait
+  pas en pratique, la regle aveugle reprenant le segment apres l'echec du
+  port declare.
+
+### Documentation
+
+- `docs/rules.md` : la feature `rules` est sortie en 13.1.0, et l'exemple
+  de dependance demande `13.1`.
+- Rustdoc de `DecodeAsProtocol::JavaRmi` : les cinq messages que seuls le
+  port 1099 et Decode As reconnaissent. Rustdoc de
+  `RtpsSerializedPayload::options` : toutes les implementations n'y rangent
+  pas le bourrage (trame 70 de `talker-listener-rtps.pcapng`, Cyclone DDS).
+  `PID_VENDOR_ID` rappelle que la specification l'appelle `PID_VENDORID`,
+  le nom que rend `RtpsParameter::name`.
+- Commentaires de `FROZEN_LABELS` et de la cible de fuzz `parse_java_rmi`,
+  remis d'accord avec ce que le code verifie.
+
+Constats faits en mettant le livre a jour pour la 13.1.1 (PR book #101).
+
+## [13.1.1] - 2026-11-18
+
+Correctif : une seule correction, trouvee par le fuzz nocturne.
+
+### Corrige
+
+- **OPC UA, en-tete coupe a un ou deux octets** (#333) : depuis #296, un
+  chunk complet suivi de 1 a 7 octets du suivant, que TCP a coupe, est lu
+  sur le port et par Decode As, et la rustdoc promettait que les octets
+  presents de ses types sont verifies. A un ou deux octets, rien ne
+  l'etait : un chunk OPN suivi de l'octet `d` etait accepte, alors
+  qu'aucun type de message ne commence par `d`. Ces octets doivent
+  desormais commencer l'un des sept types (`HEL`, `ACK`, `ERR`, `RHE`,
+  `OPN`, `MSG`, `CLO`), sinon `UnknownMessageType`, complete par des zeros.
+  La sonde aveugle, qui refuse tout reste, ne change pas. L'oracle de la
+  cible de fuzz `parse_opcua`, qui exigeait encore des chunks pavant toute
+  l'entree, admet ce reste et en verifie les types.
+
+## [13.1.0] - 2026-11-18
+
+Mineure : des ajouts d'API, sans rupture, et les corrections de la relecture
+des decodeurs contre leur spec (#288).
+
+### Ajoute
+
+- **Regles TOML, feature `rules`** (#325) : des parseurs ajoutes declares
+  dans un fichier, sans code. `RuleSet::from_toml` lit et valide le
+  fichier ; `ParseConfig::add_rules` / `with_rules` enregistrent un parseur
+  par etiquette, tout ou rien. Une regle reconnait une charge par son
+  transport, ses ports, ses bornes de longueur et des motifs d'octets a
+  position fixe, avec masque ; ses motifs doivent verifier au moins 16
+  bits, une regle sur le seul port est donc impossible. Plusieurs regles
+  sous une etiquette en sont les variantes. Des champs a position fixe
+  (entiers de 8 a 64 bits, deux ordres, masque, noms de valeurs ; octets
+  en hexadecimal ; texte) se decodent a la demande par `custom_fields`.
+  Toute erreur est refusee avec sa ligne et sa colonne, cle inconnue
+  comprise, et des bornes limitent chaque fichier. Les garanties de #319
+  s'appliquent : apres la table, sur les seuls flux `Unknown`. Nouvelle
+  dependance optionnelle : `toml` 1.2, sans ses features par defaut. Outil
+  local `examples/rules_check.rs`, cible de fuzz `parse_rules`, guide
+  `docs/rules.md`.
+- **ParseConfig::application_protocol** (#323) : relit une etiquette
+  ecrite en texte avec la configuration qui l'a produite. Pour un protocole
+  de la crate, la reponse est celle de `FromStr`. Pour un parseur ajoute
+  (#319), c'est `ApplicationProtocol::Custom`, que `FromStr` ne sait pas
+  construire. Une application qui enregistre ses etiquettes (export,
+  matrice de flux) retrouve ainsi ses flux `Custom` a la relecture.
+
+### Corrige
+
+- **TLS, record en version 3.0** (#300) : `TlsVersion::new` refusait
+  (3, 0). La RFC 5246 (annexe E.1) permet pourtant a un client d'envoyer
+  un ClientHello dans un record 3.0 pour joindre un vieux serveur, et
+  SSL 3.0 l'emploie lui-meme : ces records sortaient Unknown, meme sur TCP
+  443. Ils sont lus, et s'affichent `SSL 3.0`. Le test qui figeait ce refus
+  devient un test d'acceptation.
+- **Bitcoin, magics de reseau** (#301) : deux des cinq valeurs de la table
+  etaient retournees. Le vrai regtest (`fa bf b5 da` sur le fil) etait
+  refuse, et deux valeurs qui ne sont aucun reseau (`da b5 bf fa`,
+  `07 09 11 0b`) etaient acceptees. Testnet4 (BIP 94, `1c 16 3f 28`)
+  manquait. La table s'ecrit desormais dans l'ordre des octets du fil,
+  comme `pchMessageStart` de Bitcoin Core, et les cinq reseaux ont un test.
+- **SNMP, Counter64 de 2^63 ou plus** (#304) : en BER, une telle valeur
+  prend 9 octets, dont un zero de tete (X.690 §8.3), et la RFC 2578
+  (§7.1.10) la permet a un Counter64. Elle etait refusee
+  (`InvalidUnsignedLength`) et le message sortait Unknown sur UDP 161. Le
+  zero de tete est accepte, et un 9e octet non nul reste refuse.
+- **FTP, SMTP, NNTP, segment coupe entre CR et LF** (#305) : un CR en
+  dernier octet etait pris pour un saut de ligne nu (`BareLineBreak`), et
+  tout le segment sortait Unknown. TCP coupe pourtant ou il veut : une
+  ligne coupee entre son CR et son LF vaut desormais une ligne coupee avant
+  son CR. Un CR suivi d'autre chose qu'un LF reste refuse.
+- **FTP et NNTP, verbes standard** (#306) : `XPWD`, `XMKD`, `XRMD`, `XCUP`
+  et `XCWD`, que la RFC 1123 (§4.1.3.1) demande de reconnaitre et que
+  `ftp.exe` de Windows envoie, `LPSV` (RFC 1639), `ADAT`, `CCC`, `MIC`,
+  `CONF` et `ENC` (RFC 2228), `LANG` (RFC 2640) et `HOST` (RFC 7151)
+  s'ajoutent aux commandes FTP ; `STARTTLS` (RFC 4642), `CHECK` et
+  `TAKETHIS` (RFC 4644) aux commandes NNTP. `CAPABILITIES` admet son
+  mot-cle (RFC 3977 §5.2). La detection hors port ne change pas.
+- **SSH, lignes avant la banniere** (#307) : la RFC 4253 (§4.2) permet au
+  serveur d'envoyer d'autres lignes avant sa chaine d'identification. Un
+  segment qui ne commencait pas par `SSH-` etait refuse. Ces lignes sont
+  sautees quand elles finissent par CRLF, ne commencent pas par `SSH-`,
+  sont du texte sans octet de controle et tiennent dans 1024 octets
+  (`SSH_MAX_PRELUDE_LENGTH`) ; sinon le segment reste refuse, la regle SSH
+  etant aveugle sur TCP. La banniere en tete du segment est toujours
+  essayee avant HTTP ; apres des lignes, elle l'est apres HTTP, par une
+  seconde regle : une reponse HTTP dont le corps cite une banniere reste
+  HTTP.
+- **UMAS, sonde** (#295) : la sonde ne lisait que le premier MBAP, dont la
+  longueur declaree, et ignorait la fin du segment, malgre son commentaire
+  (« Les MBAP doivent paver le segment »). Un MBAP UMAS suivi de texte, ou
+  plus court que le segment, sortait UMAS sur tout port TCP, devant la
+  sonde Modbus que #167 a resserree. La sonde exige desormais des MBAP qui
+  pavent le segment, comme Modbus/TCP, chacun de fonction 0x5A avec un
+  en-tete UMAS. Les 181 UMAS du corpus le restent.
+- **OPC UA, sonde aveugle et chunk coupe** (#296) : hors des ports 4840 et
+  12001, trois lettres de type de message et une de type de chunk
+  suffisaient, le chunk etant lu comme partiel : `CLOCK 12:00:00` sortait
+  OPC UA. La sonde aveugle exige des chunks qui pavent le segment, et un
+  chunk partiel d'au plus 16 Mio (`OPCUA_BLIND_MAX_PARTIAL_SIZE`). Sur le
+  port, a l'inverse, un chunk complet suivi de 1 a 7 octets du suivant etait
+  refuse : ce reste est desormais le debut d'en-tete du chunk suivant, ses
+  types presents sont verifies, et l'iteration s'arrete avant lui. Les 187
+  OPC UA du corpus gardent leur etiquette.
+- **COTP, grande TPDU en classe 0** (#298) : le detecteur refusait un CR de
+  classe 0 annoncant une TPDU de 4096 ou 8192 octets, que la RFC 905
+  (§13.3.4) exclut de cette classe. Le poste IEC 61850 de
+  `iti_Sample_File_MMS_and_GOOSE.pcap` en envoie pourtant un (trame 107),
+  que tshark decode, et la regle COTP est deja gardee par le port : il est
+  tolere. `s7comm_regression` compte 33 segments COTP, comme tshark.
+- **DHCP et SRVLOC sur leurs ports** (#294) : ils n'avaient qu'une regle
+  aveugle, placee apres celles de DIS et de RADIUS. Un DHCP dont `secs`
+  egale la longueur du datagramme sortait DIS, meme sur 68 -> 67, et un
+  SrvTypeRqst SLPv1 de 20 octets sortait RADIUS sur UDP 427. Deux regles de
+  port les gardent desormais, DHCP sur UDP 67 et 68, SRVLOC sur UDP et TCP
+  427, parmi les regles de port. Hors de ces ports, l'etiquetage aveugle ne
+  change pas.
+- **DHCP, `hlen` nul et BOOTP sans cookie** (#303) : un `hlen` nul etait
+  refuse, alors que la RFC 4390 (IP sur InfiniBand, htype 32) et la
+  RFC 2855 (IEEE 1394, htype 24) l'imposent. Il est accepte pour ces deux
+  types, avec le `chaddr` nul qu'elles exigent. Un BOOTP (RFC 951) dont la
+  zone `vend` est nulle etait refuse (`InvalidMagicCookie`), alors que le
+  meme sans zone `vend` passait : il est lu sans options, comme lui. Une
+  zone non nulle sans cookie reste refusee.
+- **SRVLOC, erreurs tronquees et encodages SLPv1** (#302) : un SrvRply
+  d'erreur arrete apres son code, que la RFC 2608 (§7) permet, etait refuse
+  (`Truncated`) ; il est lu sans URL entry. Les chaines d'un DAAdvert SLPv1
+  etaient toutes lues en UTF-8, quel que soit l'encodage annonce (RFC 2165
+  §17.1) : une scope Latin-1 non ASCII faisait refuser le message, et une
+  URL UCS-2 se lisait avec ses octets nuls. Elles se lisent desormais dans
+  leur encodage, US-ASCII, ISO-8859-1, UTF-8 ou UCS-2 ; un autre encodage
+  est refuse (`UnsupportedCharEncoding`), comme un UCS-2 invalide
+  (`InvalidUcs2`). `SrvlocHeaderV1` gagne `url_bytes` et `scope_list_bytes`,
+  les octets du fil, et les methodes `url_text()` et `scope_list_text()`,
+  qui les decodent. `url` et `scope_list` restent empruntes quand leurs
+  octets sont deja ce texte en UTF-8, et vides sinon. La rustdoc de
+  `SrvlocPacket::body` disait `SrvlocMessage` exhaustive : il est
+  `#[non_exhaustive]` depuis la 11.0.0.
+- **DNS, labels binaires et AXFR sans question** (#297) : un seul label
+  hors UTF-8 faisait refuser tout le message (`Utf8Error`), alors que la
+  RFC 2181 (§11) permet un label binaire quelconque ; une requete dont un
+  label porte `ä` en Latin-1 sortait Unknown sur UDP 53. Un tel label
+  prend desormais la forme de presentation de la RFC 1035 (§5.1) : l'ASCII
+  graphique tel quel, `.` et `\` echappes, tout autre octet en `\DDD`
+  (`j\228germeister`). Les noms UTF-8 ne changent pas. Sur TCP, une
+  reponse peut laisser sa question vide, comme les messages AXFR qui
+  suivent le premier (RFC 5936 §2.2.1) ; une requete garde l'exigence
+  d'une question. La sonde aveugle UDP garde les siennes : une question
+  (#118), et des noms UTF-8, un nom echappe n'y etant pas une preuve.
+- **QUIC, Version Negotiation, versions reservees et CID v1** (#299) : un
+  Version Negotiation (version 0, RFC 9000 §17.2.1) et une version
+  reservee 0x?a?a?a?a (RFC 9000 §15) sortaient Unknown sur UDP 443, alors
+  qu'un en-tete long v1 au Connection ID de 21 a 255 octets etait du QUIC.
+  Le decodeur lit le Version Negotiation (nouvelle variante
+  `QuicPacket::VersionNegotiation`, avec `version()` et
+  `supported_versions()`) et refuse un CID v1 de plus de 20 octets
+  (`QuicError::ConnectionIdTooLong`). Une nouvelle regle de port UDP 443
+  lit les autres versions par leurs invariants (RFC 8999 §5.1). La sonde
+  aveugle ne prend que la v1. Les 74 datagrammes UDP 443 de
+  `ndpi_quic_interop_V.pcapng` sont desormais du QUIC, comme dans tshark.
+- **LLMNR, bits Z et RCODE d'une requete** (#288) : la RFC 4795
+  (§2.1.1) demande a l'emetteur de mettre les 4 bits Z a zero, mais au
+  recepteur de les ignorer (« MUST ignore them ») ; de meme, le RCODE
+  d'une requete est ignore et suppose nul. Le decodeur les refusait
+  (`InvalidZField`, `InvalidRCode`), et une telle requete sortait Unknown
+  sur UDP 5355. Il les ignore desormais, et rend les flags tels que lus. Un
+  opcode non nul reste refuse, comme un RCODE de reponse au-dela de 5. Une
+  reponse DNS recursive (RA dans Z) devient un en-tete LLMNR valide : seul
+  le port 5355, deja seul a lancer cette sonde, separe les deux.
+- **EtherNet/IP et Bitcoin, plusieurs messages dans un segment TCP**
+  (#288) : leurs sondes exigeaient que la longueur declaree couvre tout le
+  segment. TCP ne garde pourtant pas les frontieres des messages : deux
+  RegisterSession, ou `verack` suivi de `ping`, dans un segment donnaient
+  `LengthMismatch`, et le segment sortait Unknown, meme sur TCP 44818. Des
+  messages complets qui pavent le segment, chacun valide, sont desormais
+  reconnus, comme pour PostgreSQL et OPC UA (#296) ; en Bitcoin, tous sur
+  le reseau du premier. Un dernier message coupe par la fin du segment
+  reste refuse, ces sondes etant aveugles. Sur UDP, un datagramme
+  EtherNet/IP porte toujours un seul message. Les decodeurs ne changent
+  pas : `TryFrom` lit un message.
+- **OpenVPN, texte de `UnknownOpcode`** (#288) : le message annoncait
+  « defined opcodes are 1 to 10 », alors que l'opcode 11
+  (`P_CONTROL_WKC_V1`) est decode. Il dit desormais « 1 to 11 ».
+
+## [13.0.0] - 2026-11-17
+
+Majeure. Guide de migration : `MIGRATION-13.md`.
+
+### Rupture
+
+- **CorruptedLayer.error** (#275) : le champ passe de `String` a
+  `CorruptedLayerError`, un enum `#[non_exhaustive]` qui porte l'erreur du
+  decodeur, `Internet(InternetError)` ou `Transport(TransportError)`. Le
+  moteur avait cette erreur en main et l'aplatissait en texte. Un appelant
+  trie maintenant les causes par un `match` (en-tete tronque, longueur
+  invalide, anomalie TCP) au lieu de chercher un mot dans un message.
+  `Display` rend le texte d'avant et la serialisation l'ecrit : le JSON ne
+  change pas, verifie a l'octet pres sur les 387 161 trames du corpus et
+  sur 2 426 corruptions synthetiques de couche 4. `CorruptedLayerError` est
+  reexporte a la racine. Migration : `MIGRATION-13.md`.
+- **CorruptedLayer** (#275) : la struct devient `#[non_exhaustive]` et ne se
+  construit plus en litteral hors de la crate.
+  `CorruptedLayer::from(InternetError)` et `from(TransportError)` la
+  construisent et deduisent `layer` de l'erreur. Elle pourra gagner un
+  champ sans nouvelle rupture. Migration : `MIGRATION-13.md`.
+- **QuicError::LengthFieldTooSmall** (#293) : le champ `pn_length` devient
+  `min`. L'erreur comparait Length a une longueur de numero de paquet lue
+  sur des bits proteges ; elle le compare au minimum de 20 octets que
+  l'echantillon de la protection d'en-tete impose (RFC 9001 §5.4.2,
+  `QUIC_MIN_PROTECTED_LENGTH`). Migration : `MIGRATION-13.md`.
+- **ApplicationProtocol::Custom(&'static str)** (#319) : l'etiquette d'un
+  protocole reconnu par un parseur ajoute par l'appelant. La variante porte
+  une donnee : les autres n'ont plus de discriminant defini, et un cast `as`
+  ne compile plus. `ALL` et `FromStr` restent limites aux protocoles
+  integres. Migration : `MIGRATION-13.md`.
+- **NTP sans chrono** (#315) : les quatre horodatages de `NtpPacket` passent
+  de `DateTime<Utc>` a `NtpTimestamp`, un type de la crate qui garde les
+  secondes et la fraction du fil. Il fournit `unix_seconds`,
+  `subsec_nanos`, `is_null`, `to_system_time`, l'ordre dans le temps (eres
+  comprises) et un `Display` RFC 3339 a la nanoseconde. Les dates ne
+  changent pas : verifie contre tshark sur chaque datagramme NTP du corpus.
+  `NtpPacketParseError::TimestampConversionError` disparait. `chrono`, non
+  maintenu (RUSTSEC-2026-0543), n'est plus une dependance, et son exception
+  quitte `deny.toml`. Migration : `MIGRATION-13.md`.
+
+### Ajoute
+
+- **Parseurs ajoutes par l'appelant** (#319) : pour les protocoles que la
+  crate ne decode pas.
+  - Trait `ApplicationParser` (etiquette, transports, ports, `matches`,
+    `fields`), avec `CustomTransports`, `PayloadContext` et
+    `ParserRegistrationError`, reexportes a la racine.
+  - `ParseConfig::with_parser`, `add_parser`, `remove_parser`, `parser`,
+    `parser_labels` et `custom_fields`. L'enregistrement refuse une
+    etiquette invalide, celle d'un protocole integre ou une etiquette deja
+    prise, sans tenir compte de la casse ASCII.
+  - Un parseur ajoute ne passe qu'apres la table, sur une charge TCP ou UDP
+    qu'elle a laissee `Unknown`, flux internes des tunnels compris : il ne
+    prend jamais une trame a la crate. Verifie sur tout le corpus avec un
+    parseur qui accepte tout (`tests/custom_parsers.rs`), et par
+    `policy_dispatch` en fuzz. Sans parseur, rien ne change.
+  - Kit `plugin/` (crate `packet_parser_plugin`, non publiee, workspace a
+    part) : le parseur vit dans une bibliotheque native (`.so`, `.dylib`,
+    `.dll`) chargee a l'execution, derriere une ABI C versionnee.
+    `export_parser!` cote plugin, avec les paniques rattrapees a la
+    frontiere ; `load_parser` cote hote, qui verifie version, taille,
+    etiquette, transports et ports. Exemples `demo_parser` et
+    `plugin_host`, test d'integration qui compile le plugin, le charge et le
+    rejoue. Seul code `unsafe` du depot, hors de la crate publiee. Guide :
+    `docs/plugins.md`.
+- **Couche DDS de RTPS** (#317) : nouveau module `rtps::dds`, decode a la
+  demande depuis un `RtpsSubmessage` ; la detection ne change pas.
+  - `inline_qos()` : les QoS en ligne d'un DATA ou d'un DATA_FRAG.
+  - `serialized_payload()` : l'en-tete d'encapsulation (CDR, PL_CDR, XCDR2
+    et leurs variantes, ordre d'octets, options) et les donnees qui le
+    suivent.
+  - `discovery()` : pour un DATA d'un writer SPDP ou SEDP, DDS Security
+    compris, le topic integre et sa ParameterList.
+  - `RtpsParameterList` : iteration sur les parametres, PID vendeur et
+    « must understand » signales, accesseurs typees (noms de topic, de type
+    et d'entite, GUID, domaine, version, vendorId, locators et leur role,
+    duree de bail, endpoints integres, fiabilite, durabilite, key hash,
+    status info).
+  - Cinq variantes en fin de `RtpsParseError`.
+  - Les donnees d'un type utilisateur restent des octets.
+  - Golden `tests/rtps_dds_golden.rs` : parite avec tshark 4.6.9 sur les 137
+    trames du corpus RTPS qui portent la couche DDS (`tools/rtps_dds_oracle.sh`),
+    101 annonces SPDP et SEDP de cinq implementations ; cible de fuzz
+    `parse_rtps` etendue.
+- **Java RMI** (#313) : decodeur JRMP (*Java RMI Specification*,
+  chapitre 10), etiquette `Java RMI`. En-tete de flux (`JRMI`, version,
+  protocole Stream, SingleOp ou Multiplex), ProtocolAck et son adresse,
+  ProtocolNotSupported, Call (objet vise, operation, hash de methode ; les
+  methodes du registre et du DGC nommees), Return (normal ou exceptionnel,
+  UID d'acquittement), Ping, PingAck, DgcAck. Les arguments et la valeur de
+  retour restent des octets serialises, empruntes a l'entree. L'en-tete,
+  le Call et le Return se reconnaissent sur tout port TCP ; les messages
+  d'un octet, le DgcAck et le ProtocolAck sur TCP 1099 ou par
+  `DecodeAsProtocol::JavaRmi`, pour les ports que choisit l'application
+  (objets exportes, connecteurs JMX). Corpus : une capture entre deux JVM
+  sur la boucle locale (`pcaps_exemple/protocols/java_rmi/`, script de
+  reproduction `tools/java_rmi_capture.sh`), parite avec tshark sur ses
+  236 segments a charge (`tests/java_rmi_golden.rs`) ; cible de fuzz
+  `parse_java_rmi`.
+- **Derives des erreurs des couches 3 et 4** (#275) : `InternetError`,
+  `ArpError`, `Ipv4Error`, `Ipv6Error`, `ProfinetPacketError`,
+  `GooseParseError`, `LldpParseError`, `PtpPacketParseError`,
+  `TransportError`, `TcpError`, `UdpError`, `EspError`, `IcmpError` et
+  `Icmpv6Error` derivent tous `Clone`, `PartialEq`, `Eq` et `Hash`. C'est
+  ce qui permet a `PacketFlow` de porter l'erreur en gardant ses propres
+  derives.
+
+### Change
+
+- **Cout d'un paquet corrompu** (#275) : il n'alloue plus de `String`. Sur
+  le bench du depot, deux passes alternees : 365 ns -> 106 ns pour une
+  longueur totale IPv4 au-dela de la trame (trame reelle), 199 ns -> 119 ns
+  pour un en-tete TCP tronque, 331 ns -> 125 ns pour un SYN+FIN, soit le
+  cout d'un ACK sain (128 ns). `PacketFlow` passe de 440 a 456 octets,
+  sans effet mesurable sur les trames saines.
+
+### Corrige
+
+- **NBNS** (#292) : la reponse negative a une requete de nom (rcode 3,
+  NAM_ERR, RFC 1002 §4.2.14) et le refresh a l'opcode 9 (schema du §4.2.4)
+  etaient refuses, et sortaient Unknown sur UDP 137. Un commentaire
+  affirmait que NAM_ERR n'existe pas en NBNS ; il est corrige, et le test
+  qui figeait ce refus devient un test d'acceptation. tshark 4.6.9 lit les
+  deux messages. Le corpus n'en contient aucun : aucune etiquette n'y
+  change.
+- **DHCPv6, messages de relais** (#289) : Relay-Forward (12) et Relay-Reply
+  (13) etaient lus avec l'en-tete client/serveur. `transaction_id` prenait
+  le hop-count et le debut de link-address, et `options` commencait au
+  milieu de cette adresse. Leur en-tete de 34 octets (RFC 8415 §9) est
+  desormais lu dans le nouveau champ `Dhcpv6Packet::relay`
+  (`Dhcpv6Relay` : `hop_count`, `link_address`, `peer_address`) ;
+  `transaction_id` y vaut 0 et `options` commence a l'octet 34. Un relais
+  plus court est refuse (`Dhcpv6PacketParseError::RelayLength`) ; il etait
+  accepte des 4 octets. Les 4 relais du corpus (`The-Ultimate-PCAP.pcapng`,
+  trames 36781 a 36784) donnent le meme en-tete que tshark 4.6.9, et leur
+  etiquette ne change pas.
+- **AMS sur TCP** (#290) : sur TCP 48898, chaque message AMS est precede
+  de l'en-tete AMS/TCP de 6 octets (deux octets reserves nuls, longueur sur
+  quatre octets en petit-boutiste). La sonde lisait l'en-tete AMS des
+  l'octet 0 : un vrai message ADS sortait Unknown, et seul un en-tete nu,
+  qui ne circule pas seul sur TCP, etait reconnu. La nouvelle constructrice
+  `AmsPacket::try_from_tcp` lit d'abord l'en-tete AMS/TCP, puis le premier
+  message du segment ; la regle TCP 48898 et Decode As sur TCP l'emploient.
+  La regle UDP 48899 garde l'en-tete nu. Les state flags acceptent aussi
+  les bits que nomme Wireshark (0x0010 a 0x0080 et 0x8000) : un en-tete
+  ADS + UDP (0x0044) etait refuse. Nouvelles erreurs
+  `AmsParseError::InvalidTcpReserved` et `TcpLengthExceedsSegment`. Le
+  corpus n'a aucune capture AMS : la preuve est un ADS Read construit a la
+  main, que tshark 4.6.9 lit « ADS Read (2) ».
+- **MQTT 5** (#291) : quatre formes v5 valides etaient refusees, et
+  sortaient Unknown. SUBSCRIBE et UNSUBSCRIBE ne toleraient qu'un bloc de
+  proprietes vide ; SUBACK lisait la longueur de ses proprietes comme un
+  code de retour ; un PUBLISH a topic vide etait refuse meme avec un Topic
+  Alias (§3.3.2.1) ; le type 15, AUTH (§3.15), etait inconnu. Un lecteur de
+  proprietes v5 parcourt desormais chaque identifiant selon la table 2-4 de
+  la spec, et refuse un identifiant inconnu : la sonde MQTT est aveugle.
+  `MqttPacketType` gagne la variante `Auth`, `MqttError` la variante
+  `MissingAuthenticationMethod` (un AUTH a proprietes doit porter
+  l'Authentication Method, §3.15.2.2.2). Comme pour tout PUBLISH v5, les
+  proprietes restent en tete du payload. Premier MQTT 5 reel du corpus :
+  quatre captures Mosquitto du tracker Wireshark (#15257, #15428) versees
+  dans `protocols/mqtt/`, 150 paquets que tshark 4.6.9 lit, compares un a
+  un par `tests/mqtt_golden.rs`. 149 sortent MQTT ; le dernier est un
+  UNSUBACK sans reason code, que la spec interdit (§3.11.3) et que la crate
+  refuse. Les captures v3.1 du corpus gardent leurs etiquettes.
+- **QUIC, numero de paquet protege** (#293) : dans un Initial, un 0-RTT ou
+  un Handshake, la protection d'en-tete (RFC 9001 §5.4) masque le numero
+  de paquet et les bits bas de l'octet 0 qui donnent sa longueur. Le
+  decodeur les lisait quand meme : `packet_number` etait du bruit sur tout
+  paquet reel, et la charge commencait de 0 a 3 octets trop tot ou trop
+  tard. Sur les vecteurs de la RFC 9001, l'Initial client (A.2) sortait le
+  numero 123 au lieu de 2, l'Initial serveur (A.3) 0xc0d95a48 au lieu de 1.
+  `packet_number` vaut desormais toujours `None`, `pn_length` garde les
+  bits tels quels et sa rustdoc dit qu'ils sont proteges, et
+  `EncryptedPayload` couvre les `length_field` octets qui suivent Length,
+  numero de paquet compris. Un Length sous 20 octets est refuse : un
+  recepteur doit rejeter un paquet trop court pour l'echantillon (§5.4.2).
+  Les deux vecteurs sont des tests. Aucune etiquette du corpus ne change.
+
+### Interne
+
+- **Bench** (#275) : trois cas de paquet corrompu dans le groupe `frame`
+  (`corrupted_ipv4_total_length`, `corrupted_tcp_truncated`,
+  `corrupted_tcp_syn_fin`). Le sous-ensemble `corpus/subset` n'a aucune
+  trame corrompue, et le corpus entier n'en a qu'en couche 3 : les deux cas
+  de couche 4 sont synthetiques.
+- **`tests/profinet_corpus.rs`** (#275) : la variante de
+  `ProfinetPacketError` se lit sur l'erreur typee, plus en cherchant un mot
+  dans son texte.
+
+### Outillage
+
+- **FOSSA retire** (#241) : le workflow `fossa.yml` et `.fossa.yml` partent.
+  Le controle « License Compliance » de l'integration GitHub de FOSSA etait
+  rouge en permanence : il lit les textes de licence du corpus
+  (`pcaps_exemple/LICENSES/`) comme des licences du projet et ignore
+  `.fossa.yml`. L'analyse par le CLI, elle, ne bloquait rien
+  (`continue-on-error`). Les licences des dependances restent verifiees par
+  `cargo deny` (liste `allow` de `deny.toml`), avec les avis de securite,
+  les sources et les doublons.
+
+## [12.1.0] - 2026-11-16
+
+### Ajoute
+
+- **DecodeAsProtocol::ALL** (#274) : toutes les variantes de
+  `DecodeAsProtocol`, dans l'ordre de leur declaration, pour l'appelant qui
+  propose la liste des protocoles declarables sur un port. L'enum et `ALL`
+  sortent d'une seule liste, comme `ApplicationProtocol` : une variante ne
+  peut plus manquer a `ALL`. Les trois listes ecrites a la main, celle des
+  tests du dispatch et celles des cibles de fuzz `parse_packetflow` et
+  `policy_dispatch`, lisent `ALL` ; en 11.8.0, `ValmetDna` manquait a celle
+  du fuzz (#235).
+
+### Corrige
+
+- **QUIC sur une cible 32 bits** (#273) : deux longueurs lues dans un varint,
+  Token Length et Length, etaient reduites de `u64` a `usize` par un cast
+  `as`. Sur une cible 32 bits, une valeur de 2^32 ou plus perdait ses bits
+  hauts : le decodeur lisait moins d'octets que la longueur annoncee au lieu
+  de refuser le paquet. Elles saturent desormais et le controle de bornes
+  les refuse (`Truncated`, `PayloadTooShort`). Rien ne change sur 64 bits.
+
+### Interne
+
+- **Fuzz des decodeurs applicatifs** (#272) : quatorze cibles dediees
+  (`parse_dhcpv6`, `parse_ethernet_ip`, `parse_http`, `parse_mqtt`,
+  `parse_netbios`, `parse_ntp`, `parse_opcua`, `parse_openvpn`,
+  `parse_postgresql`, `parse_snmp`, `parse_srvloc`, `parse_ssdp`,
+  `parse_tls`, `parse_umas`), 39 cibles en tout. Dix-neuf decodeurs
+  n'etaient atteints que par le dispatch ; la couverture de lignes mesuree
+  sur eux passe de 77,9 % a 94,3 %. Les cibles partent de trames reelles
+  du depot (synthetiques pour SRVLOC, faute de capture) et appellent aussi
+  ce que le dispatch n'appelle pas : iterateurs, `body()` de SRVLOC,
+  `parse_tls_records`, `Display`. Cinq cibles ecrites puis ecartees :
+  celles d'AMS, Bitcoin, DHCP, Modbus/TCP et SSH n'atteignaient aucune
+  ligne de plus que les cibles generiques. Aucune panique trouvee.
+- **Casts tronquants** (#273) : `clippy::cast_possible_truncation` rejoint
+  les lints bloquants de la bibliotheque. Les 32 autres casts releves sont
+  remplaces par `try_from` ou `From`, ou portent un `#[expect]` motive (cinq :
+  pseudo-en-tete IPv4, deux FRN ASTERIX, table CRC DNP3, nanosecondes GOOSE).
+  Trois effets, hors d'atteinte d'un paquet : au-dela de 4 Gio, une longueur
+  de champ d'erreur MQTT ou PostgreSQL sature au lieu de repartir de zero,
+  `verify_tcp_checksum` et `verify_udp_checksum` rendent `None`, et
+  `Packet::packet_to_pcap` rend une erreur.
+- **Dependances** (#270) : `uuid` est retiree, la crate ne l'appelait nulle
+  part. `hex` quitte `[dependencies]` : seuls les tests et les doctests s'en
+  servent, et elle reste en dependance de developpement. `chrono` est prise
+  sans ses features par defaut, avec `std` seul : `clock` tirait
+  `iana-time-zone` pour un `Utc::now()` que la crate n'appelle pas. Le
+  `Cargo.lock` passe de 76 a 25 paquets. L'API ne change pas. `chrono` reste
+  une dependance publique (`NtpPacket` expose des `DateTime<Utc>`) : un
+  appelant qui comptait sur la crate pour activer `clock` doit desormais
+  declarer `chrono` lui-meme.
+- **pcap-file hors des dependances** (#271) : `Packet::packet_to_pcap` ecrit
+  lui-meme les 40 octets d'en-tete d'un pcap classique, et `pcap-file` devient
+  une dependance de developpement, pour les tests et les exemples qui lisent
+  des captures. Elle ne servait qu'a cette methode, et tout appelant de `parse`
+  compilait avec elle `derive-into-owned`, `byteorder_slice`, `byteorder`, un
+  `syn` v1 et un `thiserror` v1 en double : il compile 11 crates au lieu de 18.
+  Ni feature `pcap` ni rupture : la methode reste, sa signature aussi, et le
+  fichier ecrit est le meme a l'octet pres (un test le compare a la sortie de
+  `pcap-file`). Deux effets, pour un paquet de plus de 65 535 octets, que la
+  methode refusait deja : il est refuse avant la creation du fichier, qui
+  n'ecrase donc plus un fichier existant par un en-tete seul, et l'erreur
+  rendue est une `std::io::Error` (`InvalidInput`) au lieu d'une
+  `pcap_file::PcapError`.
+- **Fonctions longues** (#277) : `CotpHeader::from_bytes` (263 lignes) garde
+  la longueur et le `match` sur le type, et chaque famille de TPDU a sa
+  methode privee (CR/CC, DR, DC, ER, DT/ED/EA, AK, RJ). Dans RTPS, le bras
+  HEADER_EXTENSION de `submessage_details` devient `header_extension`. Code
+  deplace, compare a l'ancienne version sur cinq millions d'entrees. Quatre
+  fonctions de plus de 100 lignes restent telles quelles : ce sont des tables
+  (attributs RADIUS, numeros de protocole IP et leur affichage, primitives
+  STANAG 5066).
+- **Rustdoc de la facade en anglais** (#277) : la doc publique des items
+  reexportes a la racine (`parse_with`, `ParseConfig`, `DecodeAsProtocol`,
+  les aides de `MacAddress` et d'`Internet`, quelques variantes) et celle des
+  modules `checksum`, `convert` et `timing` passent en anglais, comme
+  `parse` et `PacketFlow`. Les decodeurs restent en francais. La regle est
+  dans `CONTRIBUTING.md`. Aucun texte d'erreur ne change.
+- **errors et parse** (#277) : `SnmpError` et `MqttError` importent un type
+  de leur decodeur (`SnmpVersion`, `MqttPacketType`). C'est voulu, et la doc
+  du module `errors` le dit.
+- **Contrat de stabilite** (#276) : toute la surface publique est sous
+  semver, decodeurs compris. Retoucher un champ ou une variante d'un decodeur
+  vaut une majeure ; un decodeur evolue par ajout. C'etait deja ce que
+  `cargo semver-checks` imposait sur chaque PR : la decision est maintenant
+  ecrite, dans le ROADMAP (§4), `CONTRIBUTING.md` et le README. Deux niveaux
+  de stabilite et deux crates ont ete ecartes.
+- **Detection COTP** (#277) : `cotp_from_tpkt` et ses trois fonctions de
+  rigueur quittent `parse/mod.rs` pour le module `cotp`, par deplacement
+  seul. Elles n'avaient qu'un appelant hors tests, la sonde
+  `ProbeId::CotpTpkt` ; `parse/mod.rs` ne porte plus de logique propre a un
+  protocole.
+- **Egalite de PacketFlow** (#277) : `PartialEq` et `Hash` sont derives au
+  lieu d'etre ecrits a la main. Les impls enumeraient les six champs, comme
+  le fait `derive` : un champ ajoute a la structure entre desormais d'office
+  dans l'egalite. Le hash d'un flux ne change pas.
+
+## [12.0.0] - 2026-11-15
+
+### Rupture
+
+- **ApplicationProtocol** (#217) : `Application::application_protocol:
+  &'static str` est remplace par `Application::protocol:
+  ApplicationProtocol`, un enum `#[non_exhaustive]` de 54 variantes : une
+  par etiquette de la table de dispatch, des tunnels, de STP, et `Unknown`.
+  `label()` rend la chaine d'avant, a l'octet pres ; `Display` et la
+  serialisation l'ecrivent, `FromStr` la relit et refuse un texte inconnu
+  (`UnknownApplicationLabel`). La table de dispatch, « Decode As », les
+  tunnels et STP portent l'enum : une etiquette sans variante ne compile
+  plus. Le JSON ne change pas : la cle reste `application_protocol`, et
+  `ApplicationOwned::protocol` reste une `String`. `ApplicationProtocol` et
+  `UnknownApplicationLabel` sont reexportes a la racine. Reecriture d'un
+  `match` : `MIGRATION-12.md`.
+- **Application::try_from** (#219) : `impl TryFrom<&[u8]> for Application`
+  est retire, avec la cascade sans transport ni port qu'il appelait. Un
+  appel restant ne compile plus (E0277). `classify_payload(protocole, port
+  source, port destination, payload)`, decrite plus bas sous « Ajoute », le
+  remplace et rend l'etiquette de `parse`. Migration : `MIGRATION-12.md`.
+- **ApplicationError** (#219) : l'enum est retire, avec la variante
+  `ParseError::Application` qui l'enveloppait. `EmptyPacket`, sa seule
+  variante, n'etait rendue que par `Application::try_from` ; `parse` ne l'a
+  jamais rendue. Les erreurs des decodeurs applicatifs ne changent pas.
+  Migration : `MIGRATION-12.md`.
+- **Modules copt et mac_addres** (#220) : les quatre anciens chemins,
+  `parse::application::protocols::copt`, `errors::application::copt`,
+  `parse::data_link::mac_addres` et `errors::data_link::mac_addres`, sont
+  retires. Les modules s'appellent `cotp` et `mac_address` ; les types
+  qu'ils portent ne changent pas, et `packet_parser::MacAddress` non plus.
+- **Variantes renommees sur place** (#220) : `ike::PayloadType::NatDetection`
+  devient `NatDiscovery`, `radius::AttributeType::MipHomeAgentAddress`
+  devient `Mip6FeatureVector` et `MipHomeAgentHost` devient
+  `Mip6HomeLinkPrefix`. Qui utilisait deja les constantes associees
+  RADIUS de ces noms (11.7.0) ne change rien. Les discriminants sont ceux de la 11.8.2 ; `{:?}`
+  rend le nouveau nom.
+- **Elements deprecies retires** (#220) : le champ
+  `SrvlocHeaderV1::encoding` (utiliser `char_encoding`),
+  `convert::hex_stream_to_bytes` (utiliser `try_hex_stream_to_bytes`) et
+  `S7CommPacket::MIN_SIZES` (utiliser `MIN_SIZE`). Table des noms :
+  `MIGRATION-12.md`.
+
+### Ajoute
+
+- **Modbus sur UDP** (#257) : un datagramme sur UDP 502 qui porte une
+  enveloppe MBAP recoit l'etiquette `ModbusUDP`
+  (`ApplicationProtocol::ModbusUdp`), avec le decodeur de Modbus/TCP ; il
+  sortait `Unknown`. Modbus sur UDP n'est pas dans la specification
+  « Modbus Messaging on TCP/IP », mais il existe sur le terrain et tshark le
+  decode (`mbudp`). Un autre port UDP se declare par
+  `DecodeAsProtocol::ModbusUdp`. Aucune sonde sans port : sur l'Ultimate
+  PCAP, 106 datagrammes CLDAP (UDP 389) ont la forme d'une enveloppe MBAP.
+  UMAS n'est pas distingue sur UDP, faute de capture. Golden : les 38
+  datagrammes des trames 50281 a 50318 de l'Ultimate PCAP, extraits dans
+  `protocols/modbus/modbus-udp.pcapng`, en parite avec tshark.
+- **classify_payload** (#219) : `classify_payload(protocole, port source,
+  port destination, payload)` classe le payload d'un segment TCP ou d'un
+  datagramme UDP dont l'appelant n'a plus la trame : un flux reassemble, un
+  payload stocke sans ses en-tetes. Elle rend ce que `parse` met dans
+  `PacketFlow::application` : meme table, memes gardes de transport et de
+  port, meme detection de tunnel (VXLAN, Geneve, GTP-U, CAPWAP). `None`
+  quand il n'y a rien a classer : payload vide, protocole autre que TCP et
+  UDP, port UDP reserve a mDNS ou a LLMNR qui porte autre chose. Un port
+  inconnu se passe `None`. `classify_payload_with` prend un `ParseConfig`,
+  comme `parse_with`. Verifie sur tout le corpus : 358 247 flux, tunnels
+  compris, recoivent l'etiquette de `parse`
+  (`tests/classify_payload_parity.rs`), et la cible de fuzz
+  `parse_application` tient la meme egalite sur des trames baties autour de
+  ses octets. Trois differences avec `parse`, documentees et figees chacune
+  par un test, parce que la fonction recoit un payload et non une trame :
+  elle ne voit pas les drapeaux TCP anormaux (SYN+FIN, bits reserves) pour
+  lesquels `parse` ne sonde pas le segment ; elle rend `None` pour GRE et
+  IP-in-IP, que `parse` nomme depuis l'en-tete IP ; et elle nomme encore un
+  tunnel au quatrieme niveau de flux, le dernier que `parse` garde et ou il
+  n'en cherche plus.
+- `TransportProtocol` est reexporte a la racine de la crate.
+
+### Outillage
+
+- `tools/verbench/perf_by_version.json` regenere jusqu'a la 11.8.2 (44
+  mesures ; le precedent releve s'arretait a la 11.3.0). La regression de
+  la sonde HTTP y est visible, 584 ns en 11.6.0, 1 348 ns en 11.7.0, 621 ns
+  en 11.8.2 (#214, #249).
+- Le README montre la tendance : `images/perf_by_version.svg`, courbe du
+  temps total par version publiee, ecrite par `tools/verbench/report.py
+  --svg` (et donc par `run.sh`) a partir de ce meme fichier.
+- **CodSpeed** (#214) : le depot est importe sur codspeed.io. Le job
+  « Benchmarks » mesure chaque run et l'envoie, sans la variable
+  `CODSPEED_ENABLED` qui le gardait eteint ; le README porte le badge.
+- **Tests** (#219) : `tests/classify_payload_parity.rs` fige trois cas sur
+  des octets reels : une requete LLMNR est `LLMNR` sur le port 5355 et
+  `DNS` sans port, et un message MMS sous UDP est lu comme du RADIUS, la
+  garde de transport etant la seule chose qui les separe.
+
+## [11.8.2] - 2026-11-13
+
+### Corrige
+
+- **Sonde HTTP** (#249) : depuis la 11.7.0, classer un segment TCP qu'aucune
+  sonde ne reconnait coutait quatre fois plus cher, et ce cout croissait
+  avec la taille du segment. La sonde HTTP cherchait `CRLF CRLF` dans tout
+  le payload puis validait la tete en UTF-8, deux fois (requete, reponse),
+  avant de refuser sur la premiere ligne. Chaque decodeur est desormais
+  precede d'une garde a cout constant : une methode standard en tete, apres
+  les blancs que le decodeur saute, pour une requete ; `HTTP/` pour une
+  reponse. Mesure par le bench de #214 : le paquet de reference (payload
+  chiffre de 1 208 octets) passe de 1 720 ns a 458 ns, contre 420 ns en
+  11.6.0 ; un segment de 60 000 octets passe de 16,9 µs a 447 ns. Les
+  gardes ne refusent rien que les decodeurs acceptent : un test le verifie
+  sur des requetes et des reponses precedees de chaque blanc Unicode puis
+  alterees octet par octet. Aucune etiquette ne change, l'histogramme
+  golden ne bouge pas.
+
+### Documentation
+
+- **README** (#224) : il passe de 608 a 149 lignes. Il garde le pitch,
+  l'installation, l'exemple, l'API principale, les LINKTYPE, la liste des
+  protocoles (43 etiquettes applicatives) et les garanties. Le detail par
+  protocole, par LINKTYPE, le schema JSON, les tunnels, `parse_timing` et
+  les mesures vont, sans changement, dans `docs/reference.md`.
+  `README-fr.md` (630 lignes) devient un pointeur de 18 lignes vers le
+  README anglais, le livre et docs.rs : il n'y a plus qu'une liste a tenir.
+  La methode et `CONTRIBUTING.md` demandent desormais l'entree du protocole
+  dans `docs/reference.md`.
+
+### Interne
+
+- **Decoupage** (#221) : `parse/mod.rs` (2 886 lignes) et `dispatch.rs`
+  (2 133) sont decoupes, par deplacements seuls, un commit chacun. Le
+  dispatch devient `dispatch/` : `rules.rs` (la table `RULES`), `probes.rs`
+  (`ProbeId`, `run_probe`, les verbes texte), `ports.rs` (les predicats de
+  port), `tests.rs`, et `mod.rs` qui garde `classify`, `classify_blind` et
+  `DecodeAsProtocol`. Le pipeline L3/L4/L7 de `PacketFlow` passe dans
+  `parse/engine.rs`, les tests dans `parse/tests.rs`. La detection de
+  PostgreSQL passe dans `postgresql/detection.rs`. Plus aucun fichier de
+  `src/parse/` ne depasse 800 lignes hors tests. Aucun chemin public ne
+  change (`cargo semver-checks` : aucune mise a jour requise), ni
+  l'histogramme golden.
+
+### Infrastructure
+
+- **Bench** (#214) : `benches/` mesure `parse` sur le corpus versionne,
+  avec criterion. Sept trames, une par famille : ACK TCP nu, TLS, DNS,
+  tunnel VXLAN, ASTERIX multi-blocs, le paquet de reference de `verbench`
+  et un segment TCP synthetique de 60 000 octets, la borne des sondes qui
+  lisent le payload entier (#185). Puis douze captures parcourues en
+  entier. Les trames sont choisies par un predicat sur le resultat de
+  `parse`, pas par un numero. Le workflow `bench.yml` le construit et le
+  deroule sur chaque PR et sur main. La mesure par CodSpeed (comptage
+  d'instructions, insensible a la charge du runner) s'active par la
+  variable de depot `CODSPEED_ENABLED`, une fois le depot importe sur
+  codspeed.io. Le bench est un paquet hors du workspace, comme
+  `fuzz/` : criterion ne passe ni par `cargo audit` ni par le controle
+  MSRV de la crate. Lancer : `cargo bench --manifest-path
+  benches/Cargo.toml`.
+- **Depot** (#223) : l'etabli quitte la racine. `benchmark_db`, `ingestor`,
+  `integration_test`, `see_unparsable`, `dashboards`, `docker-compose.yml`
+  et `oui.csv` vont sous `tools/lab`, qui a son propre workspace Cargo et
+  son `Cargo.lock`. `sprint_01.md`, `sprint_02.md`, `analyse.md`,
+  `TODO_TUNNELS.md` et `article/` vont sous `docs/archive`.
+  `perf_by_version.json` rejoint `tools/verbench`, qui l'ecrit. La crate
+  est seule dans son workspace : son `Cargo.lock` passe de 174 a 76
+  paquets, et `cargo audit` ne lit plus les dependances de l'etabli
+  (tokio-postgres, pcap, pnet), dont un avis RustSec rendait rouge toute PR
+  (#227). Le job principal de la CI n'installe plus libpcap ; un job `lab`
+  verifie que l'etabli compile encore. Le paquet publie ne change pas :
+  `cargo package --list` est identique.
+
+## [11.8.1] - 2026-11-12
+
+### Corrige
+
+- **Dispatch** (#212) : la memoisation des sondes tenait sur un `u64`,
+  alors que `ProbeId` compte 59 identifiants en 11.8.0. Au 65e, le
+  decalage aurait panique en debug et, en release, replie son bit sur celui
+  de SNMP : un echec de l'une aurait fait sauter l'autre sans qu'aucun test
+  ne le voie. Le masque passe a 128 bits. Une assertion de compilation
+  refuse un identifiant de plus, et un test verifie que `ProbeId::LAST`
+  est bien la derniere variante. Types internes : aucune API ne change, et
+  l'histogramme golden ne bouge pas.
+- **Fuzz** (#230) : `parse_valmet_dna` echouait la nuit sur un en-tete
+  seul de 12 octets. Le corps vide pointe sur la fin de l'entree, que
+  l'oracle excluait. Le decodeur etait correct.
+- **Fuzz** (#235) : `parse_packetflow` et `policy_dispatch` tiraient le
+  protocole declare parmi 27 variantes de `DecodeAsProtocol`, sans
+  `ValmetDna` (11.8.0) : Decode As vers Valmet DNA n'etait jamais fuzze.
+  Les deux listes ont les 28 variantes.
+- **Application::try_from** (#216) : la cascade publique, sans port ni
+  transport, etait une liste de sondes ecrite a la main qui devait suivre
+  la table `RULES`. Elle en divergeait en trois points : S7Comm venait
+  apres HTTP au lieu d'etre en tete, DNS passait par `DnsPacket::try_from`
+  au lieu de la sonde aveugle stricte (#118), HTTP lisait le payload entier
+  au lieu du prefixe `PROBE_CAP`. Elle est desormais derivee de la table :
+  ses regles sans garde ni veto de port, dans son ordre, avec les memes
+  sondes et la meme memoisation. Leur garde de transport n'est pas
+  appliquee, faute de transport. Sur les 243 566 payloads de transport du
+  corpus versionne, 168 changent d'etiquette : 167 DNS -> Unknown et 1
+  DNS -> TLS. Chaque fois, la nouvelle etiquette est celle de `parse`, sauf
+  un datagramme que `parse` etiquette NTP par sa regle de port. L'ancienne
+  cascade lisait aussi en Access-Reject RADIUS des trames S7Comm (TPKT
+  `03 00` et longueur du datagramme, que RADIUS lit comme le code 3 et sa
+  longueur) ; elles sortent S7Comm. `parse` et l'histogramme golden ne
+  changent pas.
+
+### Documentation
+
+- **Schemas mermaid de la rustdoc** (#215) : les 74 schemas `packet-beta`
+  s'affichaient comme du code, sur docs.rs comme en local.
+  `docs/rustdoc/mermaid.html`, passe a rustdoc par `--html-in-header`
+  (`[package.metadata.docs.rs]`, alias local `cargo doc-mermaid`), les
+  dessine avec mermaid 11.17.2, charge depuis jsDelivr avec son empreinte
+  SRI, et seulement sur les pages qui ont un schema. Le dessin suit le
+  theme de rustdoc. Le schema de `StatusTelegram` (Valmet DNA, 11.8.0)
+  commencait au bit 96, et mermaid l'aurait refuse : il commence au bit 0,
+  par l'en-tete. `tests/rustdoc_mermaid.rs` verifie que chaque schema
+  commence au bit 0 et que ses champs se suivent.
+- **Constats de la relecture du livre en 11.8.0** (#235) : la doc de
+  `RadiusAttribute::kind` disait `None` pour les types 126 a 190, nommes
+  depuis #192 ; la section Documentation de la 11.7.0 le repete, a lire
+  ainsi corrigee. `StatusTelegram::tick` avancait de « 640 000 ± 2 000 » :
+  sur la capture, les ecarts vont de 639 111 a 642 481. La sonde Valmet DNA
+  de port exige une taille exacte pour une famille connue, ce que son
+  commentaire taisait. La doc de `FTP_ONLY_VERBS` designait l'ancien
+  oracle (`fuzz/oracles/text_protocols.rs` depuis #108), et le commentaire
+  DNP3 sur tshark visait les plages de 2^31 a 2^32 - 1 objets, pas « 2^31 ou
+  plus ».
+- **CONTRIBUTING.md** (#225), en anglais : ou vivent les regles, les
+  verifications que la CI ne fait pas, la procedure de release pas a pas,
+  les conventions d'issues, de commits et du corpus. Chaque regle renvoie a
+  sa source. Les deux README y renvoient.
+- **Methode** (#222) : la triplication parse/checks/errors est mesuree
+  (`tools/measure_checks.py`). Sur 499 fonctions de checks, 79 % n'ont
+  qu'un appel, 63 % sont des gardes d'une ou deux instructions, 3 servent
+  hors de leur protocole, aucune a `tests/` ni a `fuzz/`. Un nouveau
+  decodeur garde donc ses checks dans un module prive de son fichier de
+  parse s'ils n'ont aucun appelant exterieur et si le tout tient en 300
+  lignes de code. Les erreurs restent dans `src/errors/`, et les decodeurs
+  existants ne bougent pas.
+
+### Infrastructure
+
+- **CI** (#213) : `cargo semver-checks` tourne sur chaque PR et sur main
+  (job `semver`), et plus seulement au tag. Deux discriminants decales
+  avaient deja passe tous les tests sans etre vus. L'API est comparee a la
+  derniere version publiee. Tant que Cargo.toml la repete, le job suppose
+  une mineure : seule une rupture echoue. Une fois Cargo.toml bumpe, c'est
+  le bump declare qui compte.
+
+## [11.8.0] - 2026-11-03
+
+### Ajoute
+
+- **Valmet DNA** : le reseau de process des systemes de controle distribue
+  Metso/Valmet, protocole proprietaire sans specification ni dissecteur
+  public, decode a partir de la seule observation du trafic — une capture
+  anonymisee, `pcaps_exemple/protocols/valmet_dna/` — en lecture seule, sans
+  code ni documentation du fournisseur. `valmet_dna::ValmetDnaPacket` lit
+  l'en-tete (magie `AB 01`, noeud source `0x80NN`, destination, longueur
+  egale au datagramme moins deux, famille `MessageKind`), le telegramme
+  d'etat de 126 octets (`StatusTelegram` : adresse IPv4 du noeud, horloge
+  BCD `DnaClock` dont l'ordre des champs est etabli sur la capture, numero
+  du noeud, groupe multicast, deux compteurs en microsecondes dont le second
+  repete le premier du telegramme precedent) et le message a etiquette
+  (`TagMessage` : longueur ecrite deux fois, etiquette empruntee,
+  `tag_text`, `class` et `path` pour la forme `:e:<classe>:<chemin>`) ; les
+  autres familles gardent leur corps en octets (`ValmetDnaMessage::Unknown`).
+  `TimeBeacon` lit la balise de 42 octets d'UDP 4516 -> 4517 (code,
+  compteur, meme horloge, adresse du noeud). Detection : sur UDP 2517, 4516
+  et 4517, toute famille et la balise ; a l'aveugle sur tout port UDP
+  (`Application::try_from`, apres RTPS), les deux familles connues a leur
+  taille exacte seulement ; `DecodeAsProtocol::ValmetDna` pour un autre
+  port. tshark n'a pas de dissecteur : `tests/valmet_dna_golden.rs` verifie
+  la structure des 720 datagrammes contre les en-tetes IP (adresse du noeud
+  et groupe) et la coherence des horloges et des compteurs d'un telegramme
+  au suivant, et fige les comptes. Histogramme golden : « Valmet DNA »
+  0 -> 720, rien d'autre ne bouge. Cible de fuzz `parse_valmet_dna`.
+
+## [11.7.0] - 2026-10-18
+
+### Corrige
+
+- **DNP3** (#180) : `RangeSpecifier::object_count` debordait sur la plage
+  complete, de 0 a `0xFFFFFFFF` (codes de plage 2 et 5) — panique avec les
+  controles de debordement (builds de debug, `cargo fuzz`), compte
+  `Some(0)` en release. La sonde DNP3 etant aveugle, une trame de 28 octets
+  aux CRC valides suffisait a faire paniquer `parse()` sur tout segment TCP
+  et presque tout datagramme UDP. Le compte vaut desormais `None` ; le
+  decodeur compte les 2^32 objets sur 64 bits, et la taille de leurs
+  donnees, calculee sur 64 bits elle aussi, decide de la suite. Quand rien
+  ne suit l'en-tete — une lecture sans prefixe, des objets de taille nulle
+  comme la classe 0 —, la chaine des en-tetes continue, comme chez tshark ;
+  quand des objets, des tailles ou des index doivent suivre, ils ne
+  tiennent dans aucune trame, et la chaine s'arrete sur cet en-tete, la ou
+  tshark, dont le compte sur 32 bits revient a zero, lit l'en-tete suivant.
+  Ces comparaisons valent pour le code de plage 2 : tshark lit le code 5
+  comme une adresse unique, la crate comme un depart et une fin. La cible
+  de fuzz `parse_dnp3` mute aussi les seules donnees utilisateur en
+  recalculant les CRC : ses mutations atteignent enfin transport,
+  application et en-tetes d'objets, et les trames de #180 et #182 en
+  deviennent des graines.
+- **DNP3** (#181) : une plage inversee, dont la fin precede le depart de
+  plus d'un index, laissait la chaine continuer et lire la suite comme un
+  nouvel en-tete. Elle l'arrete, comme tshark (« Negative number of
+  items ») pour les codes de plage 0 a 2 — sauf sur quatre octets quand le
+  depart depasse la fin de plus de 2^31 + 1 (de `0xFFFFFFFF` a 5), ou le
+  compte de tshark, calcule sur 32 bits, redevient positif ; de 10 a 5, il
+  vaut -4 et tshark s'arrete aussi. tshark lit les codes 3 a 5 comme une
+  adresse unique ; la crate y lit un depart et une fin, et une plage
+  inversee l'arrete de meme. De 5 a 4, la plage est vide : `object_count`
+  vaut desormais `Some(0)` (`None` en 11.6.0), et la chaine continue.
+  Plus generalement, un en-tete qui n'annonce aucun objet — plage vide,
+  compte nul — laisse la chaine continuer quel que soit le groupe, comme
+  chez tshark ; la 11.6.0 s'arretait sur le compte nul d'un groupe inconnu
+  ou d'objets qu'elle ne sait pas delimiter.
+- **DNP3** (#182) : dans une requete sans donnees d'objets (lecture, gel,
+  assignation de classe...), un en-tete prefixe d'index porte la liste des
+  points demandes (qualificatifs `0x17`, `0x28`, `0x39`). Le decodeur ne
+  l'enjambait pas et lisait les index comme l'en-tete suivant, inventant
+  des en-tetes. `ObjectHeader::data` couvre desormais cette liste, et la
+  chaine continue, comme chez tshark dans les lectures et les gels d'une
+  variation precise (g30v1, g20v1...). D'une variation par defaut ou d'une
+  classe (g1v0, g20v0, g60v1...), tshark n'enjambe que le premier index et
+  lit les suivants comme un en-tete ; il ne decode aucun objet d'une
+  assignation de classe.
+- **DNP3** : sur une cible 32 bits, un objet prefixe de sa taille sur
+  quatre octets, proche de `0xFFFFFFFF`, faisait deborder le calcul de la
+  position de la taille suivante — panique avec les controles de
+  debordement, atteignable par `parse()`, la sonde etant aveugle. Ce calcul
+  est desormais controle, et la chaine s'arrete sur cet en-tete, comme en
+  release.
+- **JSON** (#193) : `PacketFlow` (borrowed) et `PacketFlowOwned`
+  serialisaient les memes cles avec les memes valeurs, mais pas dans le
+  meme ordre : serde ecrit les champs dans l'ordre de leur declaration, et
+  `Transport` declarait `protocol` avant les ports, `DataLink` `ethertype`
+  apres `vlan` et `vlan_stack`. Le modele borrowed s'aligne sur le modele
+  owned, dont le schema fait foi (11.0.0) : `protocol_transport` suit
+  desormais `destination_port`, a la racine du flux comme dans chaque
+  `inner`, et `ethertype` suit `source_mac` dans `link_details`. Le texte
+  JSON du modele borrowed change donc d'ordre pour toute trame a couche
+  transport ou a tag VLAN (362 336 des 375 552 trames du corpus), sans
+  qu'une cle ni une valeur change : un lecteur JSON n'y voit rien, mais qui
+  compare, hache ou deduplique ce texte le verra. Tout format serde voit le
+  nouvel ordre (en CSV, `Transport` seul s'ecrit desormais
+  `source_port,destination_port,protocol_transport`), le `Debug` derive
+  aussi ; `PartialEq` et `Hash`, ecrits a la main, ne changent pas. Le JSON
+  du modele owned, celui que lit Sonar, ne change pas d'un octet.
+  `tests/json_schema_parity.rs`, qui comparait des `Value` dont l'egalite
+  ignore l'ordre des membres, compare aussi le texte sur tout le corpus, et
+  un test fige le texte owned d'un flux qui porte chaque membre du schema,
+  pour chaque forme de liaison.
+- **ASTERIX** et **DNS** (#184) : la sonde ASTERIX et la sonde DNS aveugle
+  ne jugeaient que les 18 432 premiers octets du payload (`PROBE_CAP`),
+  alors que leur regle porte sur le datagramme entier. Au-dela, des data
+  blocks ou des sections DNS qui finissaient pile au plafond suffisaient,
+  quoi qu'il y ait derriere : un octet de trop ou un bloc d'une categorie
+  non supportee sortait `ASTERIX`, que `AsterixPacket::try_from` refuse, et
+  cent octets nuls apres une reponse DNS sortaient `DNS`, quand #118 exige
+  des sections qui consomment exactement le datagramme. A l'inverse, un
+  datagramme ASTERIX valide dont un bloc chevauche le plafond, ou une
+  reponse DNS exacte de 20 041 octets, restait `Unknown`. Les deux sondes
+  lisent desormais le payload reel, comme la sonde NTP aveugle (#164),
+  RTPS et DIS. Sur le port 53, une reponse exacte de plus de 18 432
+  octets, que la regle de port refuse sur le prefixe plafonne, sort
+  desormais `DNS` par la sonde aveugle ; avec des octets en trop, elle
+  reste `Unknown`. Dans le corpus, seuls six datagrammes RTPS depassent le
+  plafond, etiquetes avant ces deux sondes : aucune etiquette ne change. Le
+  cout reste lineaire, borne par la taille d'un datagramme UDP (release) :
+  decoder 65 505 octets de records ASTERIX coute 2,7 ms, 3,8 fois les
+  18 432 octets du plafond ; cote DNS, grace a la borne des noms (#196), le
+  pire cas mesure, un QNAME de 255 octets vise par 10 871
+  questions-pointeurs, coute 39 ms sur 65 497 octets.
+- **DNS** (#196) : la longueur d'un nom de domaine n'etait pas bornee
+  (255 octets sur le fil, RFC 1035 §3.1). Chaque nom qui pointe vers un
+  meme QNAME relisait ce QNAME en entier, en temps quadratique dans la
+  taille du message : une reponse forgee de 18 425 octets (un QNAME de
+  4 602 labels, 767 enregistrements qui pointent vers lui) coutait 193 ms a
+  `DnsPacket::try_from`, sur le port UDP 53 comme sur tout port que la sonde
+  DNS aveugle atteint, et elle sortait `DNS`. Un nom de plus de 255 octets,
+  pointeurs suivis, fait desormais echouer `DnsPacket::try_from` et ses
+  variantes mDNS, LLMNR et TCP en quelques microsecondes, avec
+  `DnsQueryParseError::OutOfBoundParse`, deja produite pour un nom qui
+  deborde du message. tshark affiche un tel nom « <Name too long> » et
+  poursuit la dissection ; la crate n'etiquette plus le message. Aucune
+  trame du corpus ne change.
+
+- **IKE** (#189) : en IKEv1, les codes de payload 15 et 16 etaient lus
+  NAT Discovery et NAT Original Address, d'apres les brouillons
+  draft-ietf-ipsec-nat-t-ike-04 a -08, qui les posaient sans
+  enregistrement. Le registre IANA « Next Payload Types » les donne a
+  GDOI depuis la RFC 3547 : 15 est SA KEK (SAK) et 16 SA TEK (SAT), et la
+  RFC 3947 a pris 20 et 21 pour NAT-T. `PayloadType::from_code(1, 15)`
+  rend desormais `Some(SaKek)` et `from_code(1, 16)` `Some(SaTek)`, comme
+  tshark (« SA KEK Payload », « SA TEK Payload »), libreswan et strongSwan ;
+  `NatDetection` reste pour 20 et 130, `NatOriginalAddress` pour 21 et 131.
+  Aucune des 1 254 trames ISAKMP du corpus ne porte ces codes en clair.
+
+- **RDP** (#187) : un Connection Request dont la demande de negociation
+  leve CORRELATION_INFO_PRESENT (`0x08`) est suivi d'un
+  RDP_NEG_CORRELATION_INFO de 36 octets (MS-RDPBCGR §2.2.1.1.2).
+  `connection_request` n'acceptait apres le jeton que zero ou exactement
+  huit octets : la demande et sa correlation info tombaient dans le bras
+  qui refuse une longueur declaree fausse, d'ou le message contradictoire
+  « RDP negotiation structure 1 declares 8 bytes, not 8 », la sonde
+  echouait et le segment sortait `Unknown`, cookie `mstshash` et protocoles
+  demandes perdus, la ou tshark et FreeRDP lisent la structure. Elle est
+  desormais lue quand le drapeau est leve, et son `correlationId` expose.
+  `InvalidNegotiation` ne sort plus que pour une longueur declaree autre
+  que 8 : une structure de negociation coupee par la segmentation donne
+  `Truncated`, des octets en trop derriere une demande sans le drapeau ou
+  derriere la reponse d'un Connection Confirm `UnexpectedX224Data(n)`, et
+  une correlation info d'un autre type ou d'une autre longueur que 0x06 et
+  36 la nouvelle `InvalidCorrelationInfo`. Le drapeau leve sans la
+  structure reste accepte, comme en 11.6.0, avec `correlation_id` a `None`
+  (tshark marque le segment malforme). Aucune des 210 captures du corpus ne
+  porte de correlation info : `rdp_golden` inchange.
+
+- **dispatch** (#185) : au-dela de 18 432 octets (`PROBE_CAP`), 43 des 57
+  sondes ne jugeaient que ce prefixe du payload, la ou leur decodeur lit le
+  payload entier — pave jusqu'au dernier octet (SNMP, Modbus/TCP, OPC UA,
+  PostgreSQL, Bitcoin, AMS, EtherNet/IP, SRVLOC, PTP, MQTT, STANAG 5066,
+  SSDP) ou couvert par une longueur declaree qui doit y tenir (DNS sur UDP
+  53, mDNS, LLMNR, DNS sur TCP, NBSS, NBNS, COTP, S7Comm, UMAS, QUIC a
+  en-tete long, TLS). Dans un sens, des messages qui finissaient pile au
+  plafond suffisaient quoi qu'il y ait derriere : un GetResponse SNMP de
+  18 432 octets suivi de cent octets nuls sortait `SNMP`, 1 536 ADU Modbus
+  suivies d'un octet `ModbusTCP`, etiquettes que `SnmpPacket::try_from` et
+  `ModbusTcpPacket::try_from` refusent. Dans l'autre, un message complet
+  plus long que le plafond restait `Unknown` : un GetResponse SNMP exact de
+  20 050 octets, un NBSS de 30 000, un message DNS sur TCP de 20 041, 300
+  DataRow PostgreSQL et leur ReadyForQuery, un PUBLISH MQTT de 20 004, et
+  un record TLS 1.2 de 18 437 octets, le maximum de la RFC 5246 §6.2.3 que
+  le plafond ne couvre pas. Toutes ces sondes lisent desormais le payload
+  reel, comme les quatorze qui le faisaient deja et comme ASTERIX et DNS
+  aveugle depuis #184 : sur UDP il est borne par le datagramme ; sur TCP,
+  le cas des segments GRO que visait #20, le cout reste lineaire, chaque
+  decodeur s'arretant a la premiere erreur de structure — en release, un
+  segment de 60 000 octets coute au plus 31 µs a `parse()` (5 000 ADU
+  Modbus : 22 µs ; 60 000 octets nuls : 22 µs, comme avant). Seules les
+  sondes des protocoles texte (FTP, SMTP, NNTP, HTTP), qui valident tout
+  leur texte en UTF-8, gardent le plafond, que l'oracle du fuzz recopie ;
+  les reponses HTTP relevent de #176. La doc de `PROBE_CAP` et du module
+  dit desormais ce que le plafond couvre. Aucune des 210 captures du corpus
+  ne porte un payload de plus de 18 432 octets hors six datagrammes RTPS,
+  deja lus en entier : aucune etiquette ne change.
+
+- **HTTP** (#176) : la sonde ne reconnaissait que les requetes
+  (`HttpRequest::try_from`, une methode standard en tete de ligne) : une
+  reponse — `HTTP/1.1 200 OK`, `HTTP/1.1 302 Moved Temporarily`... —
+  sortait `Unknown` quand la requete qui l'avait provoquee sortait HTTP, et
+  tout le payload devait etre de l'UTF-8 valide, si bien qu'une requete dont
+  le corps binaire tenait dans le meme segment sortait `Unknown` aussi. La
+  sonde accepte desormais une reponse (ligne de statut `HTTP/<chiffre>[.<chiffre>]
+  SP <code a trois chiffres> SP [phrase]`, RFC 9112 §4, puis des en-tetes
+  valides), et seule la tete — ligne de depart et en-tetes, jusqu'au
+  premier `CRLF CRLF` — est validee en UTF-8, pour les requetes comme pour
+  les reponses : le corps est pris tel quel, image, gzip ou morceau
+  `chunked`. `HttpRequest::body` reste le corps en texte, vide quand il
+  n'est pas de l'UTF-8 ; `HttpRequest::body_bytes` porte toujours les
+  octets. Sur le corpus, 152 reponses et 144 requetes sont a parite avec
+  tshark 4.6.6 sans reassemblage (`tests/http_golden.rs`, oracle
+  `tools/http_oracle.sh`) : genre, version, methode et URI ou code et
+  phrase, trame par trame, toutes les captures de `pcaps_exemple/protocols/`
+  et l'Ultimate PCAP comprises. L'histogramme de `golden_pcaps` passe de 72
+  a 146 etiquettes HTTP (+72 reponses, +2 retransmissions de reponses que
+  tshark ne dissèque pas), et de 9 579 a 9 505 `Unknown`. Les deux reponses
+  que tshark dechiffre dans `tls12-dsb.pcapng` restent TLS : la crate ne
+  dechiffre pas.
+
+### Ajoute
+
+- **BACnet/IP** (#190) : `ConfirmedService` nomme les services confirmes
+  34, `AuthRequest` (auth-request, addendum 135-2020cp, revision de
+  protocole 29, repris dans ANSI/ASHRAE 135-2024), et 35, `DirectoryQuery`
+  (directory-query, addendum 135-2024cu, revision 31). `from_code` rendait
+  `None` pour ces deux codes, et `Apdu::confirmed_service()` avec lui, la
+  ou tshark 4.6.6 lit « authRequest (34) » (il ne nomme pas encore le 35).
+  Les deux variantes s'ajoutent en fin d'enum ; l'octet brut de
+  `Apdu::service` ne change pas. Aucune des 45 trames BACnet du corpus ne
+  porte ces services.
+
+- **IKE** (#189) : `ExchangeType::GsaInbandRekey` nomme l'echange 42 de
+  G-IKEv2 (RFC 9838 §2.4.2, registre IANA « IKEv2 Exchange Types »), seul
+  code assigne de 34 a 44 qui restait a `None` ; tshark 4.6.6 l'affiche
+  encore « Unassigned ». `ExchangeType::Transaction` nomme l'echange
+  IKEv1 6 du mode-config (draft-dukes-ike-mode-cfg-02, hors registre
+  IANA), comme tshark et comme la crate le fait deja du payload 14 du meme
+  brouillon. `PayloadType` gagne les types GDOI d'IKEv1 : `SaKek` (15),
+  `SaTek` (16), `SequenceNumber` (18), `ProofOfPossession` (19) et
+  `GroupAssociatedPolicy` (22), et `KeyDownload` couvre le 17 d'IKEv1 comme
+  le 52 d'IKEv2. Le 18 se voit sur le fil : l'en-tete en clair d'un
+  GROUPKEY-PUSH l'annonce comme premier payload. Toutes les variantes
+  s'ajoutent en fin d'enum.
+
+- **RDP** (#187) : `NegotiationRequest::correlation_id`, les seize octets
+  du `correlationId` de la correlation info, et
+  `NegotiationRequest::correlation_info_present()`. `RdpParseError` gagne
+  `InvalidCorrelationInfo { structure_type, length }`, en fin d'enum.
+- **RADIUS** (#192) : `AttributeType` nomme les 65 types assignes de 126 a
+  190 du registre IANA « RADIUS Attribute Types » (version du 2026-10-09),
+  qui rendaient `None` : Operator-Name et la localisation (RFC 5580, 126 a
+  132), la gestion (RFC 5607, 133 a 136), PKM (RFC 5904, 137 a 143),
+  DS-Lite-Tunnel-Name (RFC 6519, 144), PMIPv6 (RFC 6572, 145 a 162),
+  EAP-Lower-Layer (RFC 6677, 163), GSS-EAP (RFC 7055, 164 a 167), IPv6
+  (RFC 6911, 168 a 172 ; RFC 6930, 173) et IEEE 802 (RFC 7268, 174 a 190).
+  Les noms sont ceux du registre (173, IPv6-6rd-Configuration, devient
+  `Ipv6SixRdConfiguration`) ; les variantes s'ajoutent en fin d'enum, apres
+  241 a 246, et `RadiusAttribute::kind` passe de `None` a `Some(..)` pour
+  ces 65 codes, que tshark 4.6.6 nomme tous. Un test fige la table 126 a
+  190 contre le registre, et verifie que 17, 21, 54, 93, 191 a 240 et 247 a
+  255 restent `None`. Aucune des 265 trames RADIUS du corpus ne porte un
+  type superieur a 95.
+- **RADIUS** (#191) : `AttributeType::Mip6FeatureVector` et
+  `AttributeType::Mip6HomeLinkPrefix`, les noms IANA des types 124 et 125
+  (RFC 5447 §4.2.5 et §4.2.4), comme constantes associees egales aux
+  variantes `MipHomeAgentAddress` et `MipHomeAgentHost`, depreciees.
+  Elles s'emploient en argument de `RadiusPacket::attribute` comme en motif
+  de `match`, et compileront telles quelles en 12.0, quand elles
+  deviendront les variantes. `from_code(124)` et `from_code(125)` rendent
+  les memes valeurs qu'avant ; seul `{:?}` affiche encore l'ancien nom.
+
+- **RTPS** (#186) : le HEADER_EXTENSION de DDSI-RTPS 2.5 (submessageId
+  `0x00`, §8.3.7.3 et §9.4.5.2) est decode. `validate_submessage_id` le
+  refusait comme identifiant reserve, alors que le module se reclame de la
+  2.5 : tout message qui en portait un — RTI Connext 7.2.0 et suivantes y
+  transportent la somme de controle de `wire_protocol.compute_crc`, les
+  pieces jointes des tickets Wireshark #20971 et !20878 en montrent quatre
+  — sortait `ReservedSubmessageId { id: 0, offset: 20 }` et `Unknown`, la
+  ou tshark le decode. `SubmessageKind::HeaderExtension`,
+  `SubmessageDetails::HeaderExtension(RtpsHeaderExtension)`, en fin d'enum,
+  et `RtpsHeaderExtension` : `message_length` (L), `send_timestamp` (T),
+  `u_extension` (U), `w_extension` (W), `checksum` (C1 et C2 :
+  `RtpsChecksum::Crc32c`, `Crc64Xz` ou `Md5`, lue en grand-boutiste quel que
+  soit E, Table 9.8, non verifiee) et `parameters` (P), la ParameterList
+  restant en octets derriere `RtpsSubmessage::header_extension_parameters`.
+  Validite : un corps trop court pour les champs annonces est
+  `SubmessageTooShort` ; un HEADER_EXTENSION ailleurs qu'en premier
+  sous-message (§8.3.3.2) la nouvelle `MisplacedHeaderExtension`, et un
+  `messageLength` autre que la longueur du datagramme (§9.5) la nouvelle
+  `HeaderExtensionLengthMismatch`, deux controles que tshark 4.6.6 ne fait
+  pas. Les autres identifiants hors table restent refuses, et la doc du
+  module dit cet ecart avec le §8.3.4.1. Aucune des 210 captures du corpus
+  ne porte de HEADER_EXTENSION (`rtps.sm.id == 0x00` : 0 trame) :
+  `rtps_golden` et l'histogramme de `golden_pcaps` ne bougent pas.
+- **HTTP** (#176) : `HttpResponse<'a>` (`version`, `status_code: u16`,
+  `reason`, `headers: HttpHeaders`, `body: &[u8]`), `TryFrom<&[u8]>`,
+  `parse_http_response` et son `Display` ; `HttpRequest::body_bytes` ;
+  `HttpParseError::MissingStatusCode` et `InvalidStatusCode(String)`, en fin
+  d'enum. `HttpHeaders` est la vue commune aux requetes et aux reponses.
+  C'est aussi la brique d'en-tete que SIP (#103) reutilisera.
+
+### Deprecie
+
+- **RADIUS** (#191) : `AttributeType::MipHomeAgentAddress` (type 124) et
+  `AttributeType::MipHomeAgentHost` (type 125) portent les noms de deux AVP
+  Diameter de la RFC 5447 (codes 334 et 348 de la RFC 4004), qui n'existent
+  pas en RADIUS : le 124 est MIP6-Feature-Vector, un champ de 64 drapeaux,
+  pas une adresse ; le 125 MIP6-Home-Link-Prefix, un prefixe IPv6, pas un
+  nom d'hote. Utiliser `AttributeType::Mip6FeatureVector` et
+  `AttributeType::Mip6HomeLinkPrefix`. Les variantes seront renommees sur
+  place en 12.0, a la meme position.
+
+### Documentation
+
+- **Errata de la 11.6.0** (#194) : la section publiee reste telle quelle,
+  ses inexactitudes sont corrigees ici. RDP : 83 segments RDP et non 82 ;
+  des 481 segments TLS, 449 sont etiquetes TLS et 32 suites de records
+  coupes restent inconnues ; 287 suites de TPKT ou segments sans couche et
+  non 278 ; 10 retransmissions et non 20, que tshark ne disseque pas,
+  ecartees de la comparaison (la crate en etiquette 6 RDP et 4 TLS) ; le
+  TPDU est lu par `X224Tpdu`, pas par `CotpHeader`. DIS : des 390 trames
+  etiquetees sans declaration, 263 le sont par la regle de port UDP 3000 et
+  127 par la sonde aveugle ; les trois PDU de `wireshark_3492_dis_test2.pcap`
+  sont un Set Data, un Data Query et un Data. ASTERIX : `AsterixError`
+  gagne aussi `DuplicateRfsFrn` ; seuls des items de CAT 021 et 048 passent
+  a `Extended`, CAT 034 n'en ayant aucun. PPPoE : la session est decrite au
+  §6 de la RFC 2516, pas au §5, et l'Ultimate PCAP en porte cinq, pas une.
+  BACnet/IP : la capture ITI montre un poste qui interroge un automate, pas
+  deux automates. RADIUS : `AttributeType` ne suit pas le registre IANA pour
+  tous les types — `MipHomeAgentAddress` et `MipHomeAgentHost` (124 et 125)
+  sont les noms de deux AVP Diameter, pour MIP6-Feature-Vector et
+  MIP6-Home-Link-Prefix (#191), et 89, 101 et 241 a 246 portent ceux de
+  leur RFC. IKE et ESP : les octets que garde `encrypted_body` ne sont pas
+  tous chiffres en IKEv2, le corps du payload SK ou SKF portant en clair
+  l'IV et les donnees d'integrite (RFC 7296 §3.14) ; derriere le SPI et le
+  numero de sequence d'ESP, l'IV, en general, et l'ICV circulent aussi en
+  clair (RFC 4303 §2.3 et §2.8).
+- **Captures et doc du code** (#194, #188, #191) : les memes corrections
+  dans les `SOURCE.md` (RDP, DIS, BACnet), les tests golden et l'oracle
+  PPPoE, et d'autres faits reverifies avec tshark 4.6.6 : DNP3 (neuf
+  sessions et des select sans operate dans `dnp3.pcap`, g50v1 dans
+  `dnp3_write.pcap` et g80v1 dans `dnp3_udp_write.pcap`, aucune confirmation
+  applicative dans `dnp3_udp_select_operate.pcap`, reponse de
+  `dnp3_link_only.pcap` en seize trames de liaison), IEC 104 (seuls les
+  types impairs de 1 a 13), BACnet (TTL 119 cote automate), RADIUS
+  (bouclage, interface non enregistree, ports du client non consecutifs),
+  STANAG 5066 (un envoi refuse, pas une connexion), PROFINET (fragments
+  `0xFF83` a `0xFF8D`, `0xC000` contre `0xC002`, l'etat de la 11.5.0
+  presente comme tel et complete par celui de la 11.6.0), VLAN (le port 443
+  est du cote de 2.2.2.2), ASTERIX (I048/130 et I048/120), PostgreSQL et
+  l'index `pcaps_exemple/README.md` (PROFINET depuis la 11.6.0). Dans le
+  code et les README : §6 de la RFC 2516 ; drapeau C, payload 127 non
+  assigne, type 14 et commentaire du test UDP 4500 d'IKE ; IV et ICV d'ESP
+  en clair, comme l'IV et les donnees d'integrite du payload SK d'IKEv2 ;
+  sections de la Part 1 d'ASTERIX ; adresses de `tests/rtps_golden.rs` ;
+  couches basses et hautes de `PacketFlow::corrupted` ; table `RULES` dans
+  `METHODE_AJOUT_PROTOCOLE.md`, hors tunnels et STP. RDP (#188) : codes
+  d'echec 3, 4 et 6 corriges, 7 ajoute, `0x10` (RDS-AAD-Auth) dans
+  `requested_protocols` et `selected_protocol`, drapeaux de la demande et de
+  la reponse documentes. RADIUS (#191) : types 124 et 125 documentes avec
+  leur nom IANA et leur contenu (RFC 5447), alias de recherche rustdoc
+  (MIP6-Feature-Vector, MIP6-Home-Link-Prefix, Extended-Attribute-1 a -6,
+  CUI), liste des RFC et ecarts de nommage (89, 101, 124, 125, 241 a 246) de
+  `AttributeType` documentes, comme les types 126 a 190 du registre, que
+  `RadiusAttribute::kind` ne nomme pas ; README compris. Ni l'API ni le
+  comportement ne changent.
+
+## [11.6.0] - 2026-10-16
+
+Quatorze decodeurs de plus et la fin de faux positifs connus. Le lot defense
+(#125) est solde — IKE et ESP, DIS, STANAG 5066 SIS, RTPS, ASTERIX
+multi-categories —, l'epopee #102 aussi — IEC 60870-5-104, BACnet/IP, GOOSE
+—, et DNP3 (#99), RDP (#100), RADIUS (#101), WireGuard (#103), PPPoE (#172)
+et LLDP (#177) s'y ajoutent, chacun en parite avec tshark sur trames
+reelles. Un consommateur qui exporte les etiquettes les verra bouger : sur
+les 367 108 trames du corpus de la 11.5.0, 40 664 changent — 30 768
+datagrammes ASTERIX, 1 254 IKE, 544 NTP, 390 DIS, 322 ESP, 242 RADIUS, 231
+RTPS, 34 STANAG 5066 et 7 RDP quittent `Unknown` ; les trames IP de la
+session PPPoE de l'Ultimate PCAP ont desormais leur couche internet et leur
+transport (6 482 passent de « sans application » a `Unknown`, 196 a
+`DHCPv6`, 78 a un tunnel IP-in-IP) ; 57 segments LDAP d'Active Directory ne
+sont plus `ModbusTCP` ; une trame TSO de l'Ultimate PCAP sort `TLS`. Sur les
+corpus verses depuis, les faux positifs NTP (#164) et Modbus (#167) hors de
+leur port disparaissent, et les trames LLDP gagnent une couche internet
+(`protocol_internet` = `LLDP`) sans changer d'etiquette.
+
+Mineure et non patch : l'API publique gagne des modules (les quatorze
+decodeurs et huit categories ASTERIX), des types, des variantes, toutes en
+fin d'enums `#[non_exhaustive]` (`NetworkProtocol::Goose` et `::Lldp`,
+`InternetDetails::Goose` et `::Lldp`, `TransportDetails::Esp`, les
+`DecodeAsProtocol` de RDP, IEC 104, IKE, ESP, DIS, STANAG 5066 et
+WireGuard...), et un champ, `DataLink::pppoe` (structure
+`#[non_exhaustive]`). `cargo semver-checks` contre la 11.5.0 : aucune
+rupture. Par rapport a l'archive 11.5.0, le paquet gagne 48 fichiers, tous
+des sources nouvelles (decodeurs, verifications et erreurs) ; 47 fichiers de
+`src/` changent.
+
+### Corrige
+
+- **IPv4** (#168) : une longueur totale nulle rendait la couche internet
+  corrompue (`InvalidTotalLength`), alors que c'est celle d'un paquet
+  capture avant que la carte ne le segmente (TSO, LSO de Windows), que la
+  pile ne renseigne pas. Comme tshark (`ip.tso_support`), le paquet court
+  desormais jusqu'a la fin de la trame ; `Ipv4Packet::total_length` garde la
+  valeur du fil. Quinze trames des corpus examines, dont la trame 275 de
+  `pcaps_exemple/protocols/ntp/ndpi_line.pcap` (un record TLS de 3 133
+  octets) et la trame 47 790 de `The-Ultimate-PCAP.pcapng` (un ClientHello
+  TLS de 1 908 octets) ; test `tests/ipv4_tso.rs`.
+- **ModbusTCP** (#167) : la sonde aveugle essayait le decodeur Modbus/TCP
+  sur tout segment TCP, et l'enveloppe MBAP — identifiant de protocole nul,
+  longueur qui pave le segment, un code fonction quelconque — est aussi
+  celle de tout message prefixe de deux octets et d'une longueur sur
+  quatre. Hors du port 502, 97 segments des corpus sortaient ModbusTCP :
+  le LDAP d'Active Directory (`30 84 00 00 ..`, 57 segments de
+  `The-Ultimate-PCAP.pcapng` et 7 de `kerberos.pcap` de nDPI), DICOM, le
+  transport d'Elasticsearch, un jeu. Le decodeur tolerant ne s'applique
+  plus qu'au port TCP 502 (IANA `mbap`), par des regles de port — UMAS
+  d'abord —, et a un port declare par `DecodeAsProtocol::ModbusTcp`, qui
+  etiquette ModbusTCP tout ce qu'il porte, UMAS compris, comme Decode As le
+  fait de tout protocole. Ailleurs, et dans `Application::try_from`, chaque
+  PDU doit porter un code fonction public d'usage courant (1 a 6, 15, 16,
+  22, 23, 43 et leurs reponses d'exception) et la taille qu'il impose :
+  quantites et nombres d'octets dans les bornes de la specification, et,
+  pour la fonction 43, une Read Device Identification dont les objets
+  pavent la PDU (MEI 14 ; CANopen, MEI 13, n'a pas de taille definie). Deux
+  en-tetes qui restent des PDU valides sont en outre ecartes : le
+  LDAPMessage d'Active Directory dont l'INTEGER du messageID se lit unite 2
+  et code 1 a 4 (l'unbindRequest(2) de `NEWYORK.cap`, jeux de donnees
+  OTRF), et l'A-ASSOCIATE-RJ de DICOM. Les 522 etiquettes
+  du port 502 sont inchangees ; hors de ce port, plus aucune. Golden
+  `tests/modbus_golden.rs` (oracle `tools/modbus_oracle.sh`, tshark 4.6.6) :
+  parite sur les 601 segments Modbus/TCP de `protocols/modbus/`,
+  `protocols/umas/` et de l'Ultimate PCAP, lue en place ; les 57 segments
+  LDAP ne sont plus Modbus ; deplaces hors du port 502, 358 segments reels
+  restent reconnus, les 243 autres etant les sondes d'un scanner qui essaie
+  les 128 codes de requete (0x00 a 0x7F) et leurs reponses d'exception.
+- **NTP** (#164) : la sonde aveugle essayait le decodeur NTP sur tout
+  datagramme UDP, et l'en-tete ne suffit pas : l'ancien decodeur laissait
+  passer un datagramme aleatoire sur 250 environ. Sur les 654 captures de
+  test de nDPI, 43 des 59 etiquettes NTP etaient fausses (QUIC, CryNet,
+  Gnutella, KCP, PFCP, datagrammes NetBIOS, OpenVPN obfusque...). Le
+  decodeur tolerant ne s'applique plus qu'au port UDP 123, par une regle de
+  port placee la ou etait la sonde aveugle ; ailleurs, et dans
+  `Application::try_from`, la sonde exige aussi un poll de -7 a 24
+  (chrony, ntpd, SNTP), une precision de -32 a 0 (ou +32, que chrony fixe
+  dans ses requetes de client), un root delay de moins de 16 s (`MAXDISP` ;
+  le plus grand des corpus vaut 1 s, un en-tete QUIC v1 en porte des
+  centaines), ce qui suit l'en-tete forme de champs d'extension NTPv4 et
+  d'un MAC (crypto-NAK nul, MD5, SHA-1, SHA-256 a SHA-512, l'Extended
+  Authenticator de MS-SNTP), Receive avant Transmit, et au stratum 0 un
+  identifiant nul, ASCII ou `127.0.0.1`. Sur nDPI, la crate etiquette
+  maintenant exactement les 16 NTP de mode 1 a 5 que voit tshark (le 17e,
+  dans `NTPv2.pcap`, est une reponse de mode 7), et plus aucun des 202 558
+  datagrammes UDP non NTP des 3 110 captures examinees. Corpus
+  `pcaps_exemple/protocols/ntp/` : deux vrais NTP et six captures porteuses
+  de 31 des faux positifs (nDPI, LGPL-3.0), les MAC SHA-1, SHA-256 et
+  SHA-512 de l'issue #16640 du tracker Wireshark, et la capture de test NTP
+  de tcpdump (BSD), versee par l'auteur de chrony.
+- **NTP** (#165) : au stratum 2 et au-dela, l'identifiant de reference
+  devait etre une adresse IPv4 ni nulle ni multicast, alors que pour un
+  amont IPv6 c'est le debut du hachage MD5 de son adresse (RFC 5905 §7.3) ;
+  au stratum 0, il devait etre nul ou un kiss code connu, alors qu'un client
+  non synchronise y laisse ce qu'il veut (`127.0.0.1`, `USER`). 27 paquets
+  NTP de `The-Ultimate-PCAP.pcapng` sortaient `Unknown`. Les quatre octets
+  sont acceptes tels quels au stratum 0 et de 2 a 15 ; `Refid` affiche les
+  octets d'un identifiant de stratum 0 qui n'est pas ASCII. Le poll, signe,
+  est accepte jusqu'a -7, le minimum de chrony depuis sa version 4.3 (il
+  etait refuse des qu'il etait negatif), et `NtpPacket::poll_exponent` le
+  rend signe ; le decodeur ne compare plus Receive et Transmit, qu'une
+  reponse en mode entrelace (chrony `xleave`) inverse — seule la sonde
+  aveugle le fait. Golden `tests/ntp_golden.rs` etendu a ce corpus et, lues
+  en place, a l'Ultimate PCAP et a 4SICS : parite champ par champ avec
+  tshark sur 1 308 datagrammes (NTS, MS-SNTP authentifie, MAC SHA-256 et
+  SHA-512, requetes de chrony aux horodatages aleatoires, mode symetrique,
+  amonts IPv6), les 104 messages de controle (mode 6) et 36 citations ICMP
+  nommes comme ecarts, aucune etiquette NTP ailleurs dans `pcaps_exemple/` ;
+  deplaces hors du port 123, les 1 308 datagrammes sont reconnus par la
+  sonde aveugle, sauf une requete de chrony dont Receive suit Transmit.
+  Histogramme golden "NTP" 54 -> 77.
+
+- **NTP** (#161) : le decodeur exigeait `reference <= originate <= receive
+  <= transmit`, alors qu'originate (T1) est l'horodatage du client copie tel
+  quel et que reference, receive et transmit sont ceux du serveur. Des que
+  l'horloge du client etait en avance de quelques millisecondes — ce que
+  NTP sert a corriger —, ou qu'une premiere requete laissait originate nul,
+  la reponse du serveur sortait `InconsistentTimestamps`, donc `Unknown` :
+  20 des 26 reponses reelles du poste IEC 61850 de
+  `pcaps_exemple/protocols/goose/iti_Sample_File_MMS_and_GOOSE.pcap`.
+  `validate_datetime_ordering` ne compare plus que receive et transmit,
+  pris sur la meme horloge, et ignore un horodatage nul (RFC 5905 §6,
+  « unknown ») ; `is_null_timestamp` est expose pour le dire. Golden
+  `tests/ntp_golden.rs` (oracle `tools/ntp_oracle.sh`, tshark 4.6.6) :
+  parite sur les 54 datagrammes NTP du corpus (52 du poste, plus l'echange
+  de `iec104/iti_JavaRMI_and_IEC_Misc.pcap`, #162), en-tete, identifiant de
+  reference et les quatre horodatages a la nanoseconde ; histogramme
+  golden "NTP" 32 -> 54.
+- **NTP** (#162) : les horodatages etaient toujours comptes depuis 1900,
+  alors que la RFC 4330 §3 tranche l'ere par le bit de poids fort (a 0 :
+  2036 a 2104) — la requete d'un client Java du corpus sortait
+  `1900-01-01T00:00:37Z` la ou tshark lit `2036-02-07T06:28:53Z` ; et au
+  stratum 1 l'identifiant de reference devait figurer dans l'extrait de
+  codes de la RFC 5905 (GOES, GPS, PPS...), ce qui rejetait la reponse d'un
+  serveur `SHM` (pilote memoire partagee de ntpd). `extract_timestamp`
+  applique l'ere, `extract_reference_id` accepte au stratum 1 tout code de
+  quatre octets ASCII imprimables, justifie a gauche et complete de zeros
+  (RFC 5905 §7.3 : la liste est tenue par l'IANA, un `X` initial est libre).
+- **PostgreSQL** (#98) : le decodeur rejetait l'octet de type `p`
+  (PasswordMessage, SASLInitialResponse, SASLResponse) — toute
+  authentification par mot de passe ou SCRAM sortait `InvalidMessageType` ;
+  la detection aveugle refusait les reponses du serveur dont un
+  `ParameterStatus` a une valeur vide (`application_name` d'un client sans
+  nom) ou un nom recent (`scram_iterations`, `search_path`), et ne tenait
+  pour preuve qu'une AuthenticationSASL : AuthenticationOk, cleartext, MD5
+  et les messages SCRAM du serveur (`r=…,s=…,i=…`, `v=…`) comme du client
+  (`SCRAM-SHA-256` + `n,,n=…,r=…`, `c=…,r=…,p=…`, hache `md5…`) le sont
+  desormais. Sur le corpus Zeek, ces segments reels sortaient `Unknown`.
+- **PROFINET** (#133) : le validateur de la couche internet appliquait le
+  decodeur DCP a toute trame EtherType `0x8892`, et ne connaissait que cinq
+  Frame ID. Toute trame cyclique (RT_CLASS_1, RT_CLASS_3), alarme, PTCP ou
+  fragment sortait en `corrupted` (`Unknown Frame ID`), et une trame cyclique
+  des plages acceptees etait lue comme du DCP. `FrameId` classe desormais
+  toutes les plages attribuees d'IEC 61158-6-10 (celles du dissecteur
+  `pn_rt` de Wireshark : `Sync`, `RtClass3`, `RtClass1Unicast`,
+  `RtClass1Multicast`, `AlarmHigh`, `AlarmLow`, `Rsi`, `Sxp`, `Hello`,
+  `PtcpAnnounce`, `PtcpFollowUp`, `PtcpDelay`, `Fragment`, en fin d'enum),
+  `profinet::validate_frame` valide une trame par son seul Frame ID, et le
+  decodeur DCP ne s'applique plus qu'aux Frame ID DCP (`FrameId::is_dcp`).
+  Une valeur reservee reste `UnknownFrameId`.
+- **PROFINET DCP** (#141) : le premier bloc etait lu comme le NameOfStation,
+  BlockInfo ou BlockQualifier compris. Un Set request (bloc IP en tete) ou
+  une Identify response (DeviceOptions en tete) sortait en
+  `InvalidNameOfStation`, et le nom des autres reponses commencait par deux
+  octets de BlockInfo. `ProfinetPacket` parcourt maintenant tous les blocs
+  sur `DCPDataLength` (bourrage apres un bloc impair compris), met a part le
+  BlockInfo des reponses Identify et Get et d'une requete Hello et le
+  BlockQualifier d'une requete Set, et prend `name_of_station` dans le bloc
+  option 2 / suboption 2, vide quand le message n'en porte pas. Les champs
+  `option`, `suboption` et `dcp_block_length` restent ceux du premier bloc.
+  Sur le corpus, les 231 trames PN-RT saines sortent `internet = Profinet`
+  (129 `corrupted` avant) et le NameOfStation de chaque message DCP est
+  celui de tshark (`tests/profinet_corpus.rs`, oracle
+  `tests/data/profinet_tshark_oracle.tsv`).
+- **Corpus** (suite de #104) : provenance des captures de la racine etablie
+  et verifiee a l'octet pres — `4SICS-GeekLounge-151020.pcap` (Netresec,
+  crediter CS3Sthlm), `The-Ultimate-PCAP.pcapng` (Johannes Weber, v20260710)
+  et ses extraits CAPWAP (trames 1555 et 1568 ; la premiere est aussi la
+  trame 12 de l'issue Wireshark 9752), `ftp.pcap` (*Practical Packet
+  Analysis*, Chris Sanders) ; `Modbus.pcap` vient de la collection
+  automayt/ICS-pcap, sans origine premiere nommee. Deux fichiers
+  **fabriques** retires, contraires a la regle « trames reelles uniquement »
+  du corpus : `capwap-multi-wtp.pcap` et
+  `protocols/http/simple-http-request.pcap` (l'histogramme golden perd sa
+  trame HTTP fabriquee, 72 -> 71), ainsi que `capwap.pcap.out`, sortie
+  ndpiReader egaree. Tout est dans `pcaps_exemple/SOURCE.md` et
+  `LICENSES/README.md`.
+- **FTP, SMTP, NNTP** (#109) : un CR ou un LF nu, et tout caractere de
+  controle autre que TAB (NUL, ESC, DEL...), etaient acceptes dans
+  l'argument d'une commande comme dans ce qui suit la ligne. Les quatre
+  entrees du fuzz nocturne de #107 (`STOR SPSH-*\x17\x14\x00\n\r\n`,
+  `STOR +2\r\n\x17\x15\x00`...) passaient ainsi pour des commandes FTP
+  completes, donc detectees hors port (#66). Les trois parseurs refusent
+  ces octets sur tout le payload, avec deux erreurs nommees en fin d'enum
+  (`BareLineBreak { offset }`, `ControlCharacter { offset, byte }`) ; NNTP
+  n'interdit dans le bloc de donnees qui suit la ligne que NUL, CR et LF
+  nus (RFC 3977 §3.1.1), ce bloc pouvant ne pas etre du texte. Mesure sur
+  le corpus : aucun des 200 segments FTP, SMTP et NNTP de `pcaps_exemple/`
+  ne porte un tel octet, l'histogramme golden ne bouge pas. References :
+  RFC 959 §5.3.2, RFC 5321 §2.3.8, RFC 3977 §3.1 et §9.8. Les quatre
+  entrees du fuzz sont rejouees par un test du dispatch.
+- **NNTP hors port** : la garde a cout constant de la detection par contenu
+  (#66) n'admettait qu'un espace ou un CR apres le verbe, alors que le
+  parseur NNTP accepte aussi une tabulation comme separateur (RFC 3977
+  §3.1) : `ARTICLE\t12345` sortait `Unknown` hors du port 119. Trouve par
+  la nouvelle cible de fuzz `policy_dispatch` (#108) en 28 000 executions.
+
+### Ajoute
+
+- **LLDP** (epopee #177) : l'annonce IEEE 802.1AB que chaque equipement fait
+  a ses voisins directs (EtherType `0x88CC`) etait seulement nommee. Comme
+  GOOSE, elle se decode dans la couche internet : `NetworkProtocol::Lldp` et
+  `InternetDetails::Lldp` (fin d'enum), `InternetError::LldpError`.
+  `lldp::LldpPacket` garde chaque TLV, valeur empruntee a la trame, lit les
+  trois TLV obligatoires (`chassis_id` et `port_id` : `LldpId`, sous-type et
+  identifiant, `as_mac`, `as_network_address`, `as_text` ; `time_to_live`)
+  et le bourrage qui suit le TLV End of LLDPDU, et, par des accesseurs, la
+  description du port, le nom et la description de l'equipement, ses
+  capacites (`SystemCapabilities`), ses adresses de gestion
+  (`ManagementAddress`, `ip`) et les TLV d'organisation (`OrganizationTlv` :
+  OUI, sous-type, information ; `organization` nomme PROFINET, IEEE 802.1,
+  IEEE 802.3, LLDP-MED, Hirschmann et Cisco). Les trois TLV obligatoires
+  ouvrent le LLDPDU dans l'ordre, et les longueurs restent dans les bornes
+  de la norme (Chassis ID et Port ID de 2 a 256 octets, TTL de 2, capacites
+  de 4, End vide, Management Address de 9 a 167 et pavee par ses longueurs
+  internes, TLV d'organisation d'au moins 4) : une trame qui ne les respecte
+  pas est une couche internet corrompue. La sonde aveugle de
+  `Internet::try_from` reconnait LLDP apres GOOSE, TLV End et bourrage nul
+  en plus. Parite avec tshark 4.6.6 sur les 276 trames LLDP du depot
+  (`tests/lldp_golden.rs`, oracle `tools/lldp_oracle.sh`) : 201 et 4 de
+  `protocols/profinet/` (Siemens SCALANCE et SIMATIC, TLV PROFINET et IEEE
+  802.3), 71 de `The-Ultimate-PCAP.pcapng`, lue en place (deux commutateurs
+  Cisco : 12 trames Ethernet aux adresses de gestion IPv4 et IPv6, 59
+  mPackets IEEE 802.3br) — types et longueurs des TLV, chassis, port, TTL,
+  nom, description du port, capacites, adresses de gestion et OUI ; aucune
+  autre trame ne passe pour du LLDP. Une trame LLDP a desormais une couche
+  internet `LLDP` (`protocol_internet` en JSON), toujours sans application :
+  l'histogramme golden ne change pas. Cible de fuzz `parse_lldp`.
+- **WireGuard** (epopee #103, Tier 3) : le tunnel VPN sur UDP, un message
+  par datagramme. `wireguard::WireGuardPacket` lit le type, les trois
+  octets reserves et le message (`WireGuardMessage`, `#[non_exhaustive]`) :
+  `HandshakeInitiation` (index de l'emetteur, cle ephemere, cle statique et
+  horodatage chiffres, mac1, mac2), `HandshakeResponse` (index des deux
+  pairs, cle ephemere, « rien » chiffre, mac1, mac2), `CookieReply` (index,
+  nonce, cookie chiffre) et `TransportData` (index du destinataire,
+  compteur, paquet chiffre emprunte, `is_keepalive`) ; tailles fixes de 148,
+  92 et 64 octets, au moins 32 pour les donnees ; rien n'est dechiffre.
+  Detection : WireGuard n'a pas de port IANA. Par
+  `DecodeAsProtocol::WireGuard` (fin d'enum), la forme du message suffit,
+  octets reserves compris. Sur UDP 51820, le port des exemples de `wg(8)`
+  et `wg-quick(8)` (sans `ListenPort`, le port est tire au hasard), la
+  regle suit l'heuristique de tshark : la forme suffit a une initiation ou
+  une reponse, octets reserves compris (Cloudflare s'en sert pour repartir
+  la charge), un cookie et des donnees ont des octets reserves nuls ; c'est
+  la derniere regle de port avant NTP, pour qu'un paquet ESP, IKE ou DNS
+  dont le pair a tire 51820 garde son etiquette. Ailleurs, la sonde
+  aveugle — derniere des sondes UDP, apres QUIC — exige des octets reserves
+  nuls et, pour les donnees, un compteur sous 2^60 (`REKEY_AFTER_MESSAGES`)
+  et un paquet clair complete a seize octets ou arrete a une MTU d'au moins
+  552 octets, le plancher de la PMTU IPv4 de Linux : l'heuristique de
+  tshark, qui n'exige que le type, la taille et, pour le cookie et les
+  donnees, des octets reserves nuls, prend 59 datagrammes Zoom, TeamViewer
+  et League of Legends du corpus de nDPI pour du WireGuard (des Transport
+  Data aux octets reserves nuls, que seuls le compteur et le bourrage
+  ecartent), la crate aucun. boringtun (Cloudflare) et ses derives
+  (NordSecurity neptun, Firezone) ne completent pas leurs donnees : hors de
+  51820 et des ports declares, seuls leurs handshakes, leurs keepalives et
+  leurs paquets de taille ronde sont reconnus. Le client WARP officiel
+  change aussi l'octet de type (0xC1 a 0xC4) : il n'est pas decode.
+  Corpus `pcaps_exemple/protocols/wireguard/` : 128 messages de Linux
+  (depot Wireshark, GPL-2.0), NordVPN, ProtonVPN sur UDP 443, Mullvad sur
+  UDP 5060 et TunnelBear (nDPI, LGPL-3.0), Tailscale/wireguard-go sur UDP
+  41641 (Corelight, BSD-3-Clause, texte verse dans
+  `pcaps_exemple/LICENSES/BSD-3-Clause-Corelight.txt`), et deux captures
+  Zoom et LoL sans WireGuard. Parite avec tshark 4.6.6 sur les 128 messages
+  (`tests/wireguard_golden.rs`, oracle `tools/wireguard_oracle.sh`), les 25
+  datagrammes Zoom et LoL que tshark accepte nommes comme ecarts, aucun des
+  voisins (disco de Tailscale, handshakes etendus de TunnelBear, OpenVPN
+  obfusque de NordVPN) etiquete WireGuard ; les 128 messages sont reconnus
+  hors de leur port ; alteres d'octets reserves non nuls, ils ne le sont
+  plus qu'en handshake sur 51820, et tous par Decode As ; un keepalive dans
+  une trame IPv6 suit les memes regles. Cible de fuzz `parse_wireguard`.
+- **PPPoE** (#172) : la session PPPoE (EtherType `0x8864`, RFC 2516 §5)
+  etait seulement nommee ; une liaison fibre ou xDSL d'abonne porte pourtant
+  tout son trafic IP. La couche liaison pele desormais la session comme un
+  tag VLAN quand PPP porte IPv4 (`0x0021`) ou IPv6 (`0x0057`) : `ethertype`
+  et `payload` decrivent ce paquet, et `DataLink::pppoe` (`PppoeSession`,
+  `#[non_exhaustive]` : session, longueur, protocole PPP,
+  `ppp_protocol_name`) garde la session ; comme chez tshark, le paquet est
+  borne par la longueur PPPoE (bourrage Ethernet ecarte), puis par la fin de
+  la trame (capture tronquee), et une longueur PPPoE plus courte que le
+  paquet IP le tronque : la couche internet le signale corrompu, comme sur
+  six trames de `pcaps_exemple/vlan/pppoe-over-qinq.pcap` que tshark signale
+  aussi (`tests/qinq_golden.rs`). Un champ protocole PPP compresse sur un
+  octet (PFC, RFC 1661 §6.5) est lu comme chez tshark. L'identite d'un flux
+  (`PartialEq`, `Hash`) retient la session et le protocole PPP, pas la
+  longueur PPPoE, qui change a chaque paquet. Avec un protocole de controle
+  (LCP, IPCP, IPv6CP...), l'EtherType reste `0x8864` et la charge est le
+  paquet PPP ; une trame qui n'est pas une session bien formee reste sans
+  couche 3, comme un EtherType inconnu. Sous VLAN comme sans. Golden
+  `tests/pppoe_golden.rs` (oracle `tools/pppoe_oracle.sh`, tshark 4.6.6) :
+  les 6 795 trames de session de `The-Ultimate-PCAP.pcapng`, lue en place,
+  ont la meme session, la meme longueur, le meme protocole PPP et le meme
+  transport que pour tshark (RTP et SIP, DHCPv6, IPv4 dans IPv6, LCP, IPCP,
+  IPv6CP), au premier fragment IPv4 pres, sans transport pour la crate. La
+  session n'est pas encore serialisee : `DataLinkOwned`, structure
+  exhaustive, ne peut pas la porter sans rupture d'API, et les deux modeles
+  doivent donner le meme JSON ; le paquet porte, lui, l'est.
+
+- **GOOSE** (epopee #102, Tier 2) : les evenements d'un poste electrique,
+  IEC 61850-8-1, publies en multicast directement sur Ethernet (EtherType
+  `0x88B8`, souvent sous une etiquette VLAN que la couche liaison retire).
+  Comme PTP, la trame se decode dans la couche internet :
+  `NetworkProtocol::Goose` (fin d'enum), `InternetDetails::Goose`,
+  `InternetError::GooseError`, `Ethertype::static_name` "GOOSE".
+  `goose::GoosePacket` lit l'en-tete (APPID, longueur qui doit couvrir
+  exactement la trame, deux mots reserves avec `simulation_bit`) puis le
+  goosePdu BER (`GoosePdu` : gocbRef, timeAllowedtoLive, datSet, goID,
+  horodatage `UtcTime` avec fraction, qualite et `nanoseconds`, stNum,
+  sqNum, simulation, confRev, ndsCom, numDatSetEntries, `security`), et
+  `allData` element par element (`GooseData` : etiquette BER, type nomme
+  par `DataKind`, octets tels quels, `as_bool`). Longueurs BER courtes et
+  longues, entiers de un a cinq octets ; un champ inconnu est ignore, un
+  champ obligatoire absent, un entier trop long, un booleen ou un
+  horodatage de mauvaise taille et des octets en trop sont rejetes. La
+  sonde aveugle de `Internet::try_from` reconnait aussi GOOSE apres ARP,
+  IPv4, IPv6 et Profinet. Corpus : `pcaps_exemple/protocols/goose/`, quatre
+  captures ITI (CC-BY-4.0) : un relais GE F650, un simulateur sur VLAN 10,
+  trois IED d'un poste sur VLAN 0 puis sans VLAN au milieu de MMS, NTP et
+  TCP. Parite avec tshark 4.6.6 sur les 494 trames (`tests/goose_golden.rs`,
+  oracle `tools/goose_oracle.sh`) : VLAN, en-tete, chaque champ du PDU,
+  nombre et types des elements de allData ; sonde aveugle sur chaque trame,
+  aucun faux positif sur le reste du corpus. Histogramme golden : les
+  trames GOOSE restent "(sans application)" (couche internet, comme PTP en
+  couche 2) ; collecteur de corpus 163 -> 167 captures. Cible de fuzz
+  `parse_goose`. Sampled Values (IEC 61850-9-2) n'est pas decode : aucune
+  capture redistribuable n'a ete trouvee.
+- **BACnet/IP** (epopee #102, Tier 2) : la gestion technique du batiment,
+  ASHRAE 135 annexe J. `bacnet::BacnetPacket` lit le BVLC (`0x81`, fonction
+  nommee par `BvlcFunction`, longueur qui doit couvrir exactement le
+  datagramme, origine d'un Forwarded-NPDU), puis pour les fonctions qui
+  en portent un le NPDU (`Npdu` : version 1, controle avec `expecting_reply`
+  et `priority`, adresses reseau de destination et de source
+  `NetworkAddress`, compte de sauts, message reseau avec identifiant de
+  vendeur pour les types proprietaires) et l'APDU (`Apdu` : type nomme par
+  `ApduType`, drapeaux, identifiant d'invocation, segments et taille
+  acceptes, numero de segment et fenetre, service nomme par
+  `ConfirmedService` ou `UnconfirmedService`, motif de rejet ou d'abandon,
+  donnees du service telles quelles). Dispatch : regle de port UDP 47808 a
+  47823, et la meme sonde a l'aveugle sur tout port UDP — la longueur BVLC
+  egale au datagramme et la version 1 sont la signature. Corpus :
+  `pcaps_exemple/protocols/bacnet/`, deux automates (ITI, CC-BY-4.0) et un
+  equipement expose a Internet puis un reseau local (nDPI, LGPL-3.0).
+  Parite avec tshark 4.6.6 sur les 45 datagrammes (`tests/bacnet_golden.rs`,
+  oracle `tools/bacnet_oracle.sh`) : BVLC, NPDU et APDU champ par champ ;
+  port ou sonde aveugle, cinq alterations d'un octet rejetees. Histogramme
+  golden : "BACnet/IP" 0 -> 45 ; collecteur de corpus 161 -> 163 captures. Cible de fuzz `parse_bacnet`.
+- **IEC 60870-5-104** (epopee #102, Tier 2) : la telecommande du secteur
+  electrique europeen, compagnon de DNP3. `iec104::Iec104Packet` lit les
+  APDU d'un segment TCP — `0x68`, longueur, champ de controle dont le
+  format (`ApciFormat` : I avec N(S) et N(R), S avec N(R), U avec sa
+  fonction nommee par `UnnumberedFunction`) — et, en format I, l'ASDU
+  (`Asdu` : type nomme par son mnemonique IEC 60870-5-101 dans `AsduType`,
+  SQ, nombre d'objets, cause de transmission avec P/N et T, adresses
+  d'origine et commune, objets d'information `InformationObject` avec leur
+  adresse sur trois octets — en sequence, celle du premier plus le rang —
+  et leur element dimensionne par la table de la norme ; un type inconnu
+  laisse ses octets dans `undecoded`). Un APDU coupe par la segmentation
+  est decode sur ce qu'il en reste et marque `truncated`. Dispatch garde
+  par le port 2404 (`DecodeAsProtocol::Iec104` ailleurs) : `0x68` et une
+  longueur sont deux octets, trop peu pour sonder tout segment TCP.
+  Corpus : `pcaps_exemple/protocols/iec104/`, une session complete et un
+  segment en sequence du wiki Wireshark (GPL-2.0), des mesures horodatees
+  du corpus nDPI (LGPL-3.0), et deux captures ITI (CC-BY-4.0 : commandes
+  horodatees, interrogations en sequence) ; la seconde capture nDPI, qui
+  mele une session reelle et des segments fabriques, est ecartee. Parite
+  avec tshark 4.6.6 sans reassemblage sur les 373 segments et 448 APDU
+  (`tests/iec104_golden.rs`, oracle `tools/iec104_oracle.sh`) : formats,
+  fonctions, numeros de sequence, types, causes, adresses et 668 objets, les
+  46 ASDU en sequence compris. Histogramme golden : "IEC 104" 0 -> 374 ;
+  collecteur de corpus 156 -> 161 captures. Cible de
+  fuzz `parse_iec104`.
+- **RDP** (#100, Tier 3) : MS-RDPBCGR sur TCP 3389, qui rentabilise le
+  chantier TPKT/COTP de la 10.0.0. `rdp::RdpPacket` lit les TPKT d'un
+  segment (le dernier eventuellement coupe par la segmentation, decode sur
+  ce qu'il en reste et marque `truncated`), leur TPDU COTP (`CotpHeader`),
+  et ce qu'il porte (`RdpPayload`) : le Connection Request du client avec
+  son jeton de routage ou son cookie `Cookie: mstshash=<user>`
+  (`cookie_user()`) et sa demande de negociation (`NegotiationRequest` :
+  drapeaux, protocoles demandes, `tls()`, `credssp()`, `rdstls()`), le
+  Connection Confirm du serveur avec la reponse ou l'echec
+  (`NegotiationResponse`), et les PDU MCS (`McsPdu`, type nomme par
+  `McsPduType` : Connect-Initial et Connect-Response en BER, Erect Domain,
+  Attach User, Channel Join, Send Data avec utilisateur, canal, priorite et
+  donnees, Disconnect Provider Ultimatum en PER). Dispatch garde par le
+  port 3389 (`DecodeAsProtocol::Rdp` ailleurs) : TPKT, COTP et MCS sont
+  aussi la pile de T.120. **Apres une negociation TLS ou CredSSP, les
+  segments suivants sont etiquetes TLS** : c'est la decision de l'issue,
+  testee sur `rdp-to-ssl.pcap`. Corpus : cinq captures du corpus de tests
+  de Zeek (BSD 3-clause) dans `pcaps_exemple/protocols/rdp/`, avec et sans
+  cookie, bascule TLS, session MCS complete ; `rdp-invalid-length.pcap`
+  (octets fabriques) et les `rdpeudp*` (RDP-UDP, hors perimetre) ecartes.
+  Parite avec tshark 4.6.6 sans reassemblage sur les 861 segments
+  (`tests/rdp_golden.rs`, oracle `tools/rdp_oracle.sh`) : 82 segments RDP
+  (jetons, negociations, types MCS), 481 TLS, 278 suites de TPKT coupes ou
+  segments sans couche laisses inconnus comme chez tshark, 20
+  retransmissions ignorees comme tshark les ignore. Histogramme golden :
+  "RDP" 0 -> 89, "TLS" 613 -> 1 066, "Unknown" 7 932 -> 8 251 ; collecteur de
+  corpus 151 -> 156 captures. Cible de fuzz `parse_rdp`.
+- **RADIUS** (#101, dernier de la ligne « au fil de l'eau ») : RFC 2865,
+  comptabilite RFC 2866, changement d'autorisation RFC 5176.
+  `radius::RadiusPacket` lit l'en-tete (code nomme par `RadiusCode`,
+  identifiant, longueur qui doit couvrir exactement le datagramme,
+  authentificateur) et la liste des attributs (`RadiusAttribute` : type
+  nomme par `AttributeType` d'apres le registre IANA, longueur, valeur
+  empruntee ; accesseurs `as_u32`, `as_ipv4`, `as_text`, `vendor` pour les
+  Vendor-Specific ; `attribute(kind)` pour le premier d'un type). Dispatch :
+  regle de port UDP 1812/1813/1645/1646/3799, et la meme sonde a l'aveugle
+  sur tout port UDP — code connu, longueur egale au datagramme, attributs
+  qui le pavent. Corpus : les deux captures du corpus de tests de Zeek (BSD
+  3-clause) dans `pcaps_exemple/protocols/radius/`, plus les 72 paquets de
+  `The-Ultimate-PCAP.pcapng` lus sur place. Parite avec tshark 4.6.6 sur les
+  95 paquets (`tests/radius_golden.rs`, oracle `tools/radius_oracle.sh`) :
+  en-tete, authentificateur, types et longueurs des attributs, vendeurs ;
+  aucune des 51 256 autres trames de l'Ultimate PCAP n'est etiquetee RADIUS
+  a l'aveugle. Histogramme golden : "RADIUS" 0 -> 23 ; collecteur
+  de corpus 149 -> 151 captures. Cible de fuzz
+  `parse_radius`.
+- **DNP3** (#99, Tier 2) : IEEE 1815, le protocole SCADA du secteur
+  electrique nord-americain. `dnp3::Dnp3Packet` lit les trames de liaison qui
+  pavent un segment TCP ou un datagramme UDP — `05 64`, longueur, controle
+  (direction, primaire, bits de comptage, fonction nommee par
+  `LinkFunction`), adresses, et le **CRC-16/DNP de l'en-tete comme de chaque
+  bloc de seize octets**, verifies ; les donnees utilisateur sont recopiees
+  sans leurs CRC dans `LinkFrame::user_data` —, l'en-tete de transport
+  (premier, dernier, sequence) et, sur le premier segment d'un fragment,
+  l'en-tete applicatif (controle, fonction nommee par
+  `ApplicationFunction`, IIN des reponses) puis la chaine des en-tetes
+  d'objets (`ObjectHeader` : groupe, variation, qualificatif, prefixe,
+  plage ou compte, position des donnees, dimensionnees par la table de
+  l'annexe A ; un groupe inconnu ou un qualificatif reserve arrete la
+  chaine dans `undecoded`). Sondage **aveugle**, TCP et UDP : les CRC sont
+  la signature, pas le port 20000. Corpus : seize captures du corpus de
+  tests de Zeek (BSD 3-clause) dans `pcaps_exemple/protocols/dnp3/`, dont
+  une lecture sur le port 20001. Parite avec tshark 4.6.6 sans reassemblage
+  sur les 220 segments et datagrammes (`tests/dnp3_golden.rs`, oracle
+  `tools/dnp3_oracle.sh`) : liaison et transport sur les 218 trames,
+  application et 160 en-tetes d'objets sur les 159 fragments d'une trame
+  (sauf les objets des quatre STOP_APPL de dnp3.pcap, que tshark ne
+  dissèque pas pour cette fonction) ;
+  chaque octet altere d'une trame reelle est rejete. Histogramme golden :
+  "DNP3" 0 -> 218 (toutes a l'aveugle, TCP comme UDP), "Unknown" 7 930 -> 7 932
+  (les deux segments de dnp3.pcap qui ne sont pas du DNP3), "(sans
+  application)" 4 392 -> 4 595 (les ACK). Cible de fuzz `parse_dnp3`.
+- **PostgreSQL : corpus reel et golden** (#98) : quatorze captures du corpus
+  de tests de Zeek (BSD 3-clause, texte dans
+  `pcaps_exemple/LICENSES/BSD-3-Clause-Zeek.txt`) dans
+  `pcaps_exemple/protocols/postgresql/` — douze sessions psql reelles
+  (loopback, VM vers AWS RDS, application en conteneurs, poste Windows) et
+  deux negatifs, HTTP et MySQL rejoues sur 5432. `tests/postgresql_golden.rs`
+  + oracle `tools/postgresql_oracle.sh` (tshark 4.6.6 sans reassemblage) :
+  parite sur les 276 segments PostgreSQL (558 messages, types et
+  longueurs), 262 d'entre eux retenus par la sonde aveugle une fois leurs
+  ports deplaces (les 14 autres sont les reponses SSL, `Terminate` et
+  `ReadyForQuery` seuls, sans preuve forte), zero faux positif sur les
+  negatifs la ou tshark en compte six, et trames reelles mutees rejetees. L'arbitrage du `ROADMAP` sur les
+  reponses d'un octet est tranche par la mesure : `PostgreSqlMessageType::SslResponse`
+  (le `S` ou `N` que le serveur renvoie a SSLRequest, corps
+  `PostgreSqlMessageBody::SslResponse { accepted }`) n'est decode que seul
+  dans son segment, et reconnu par une regle de port TCP 5432 (ou
+  `DecodeAsProtocol::PostgreSql`) qui se contente d'un decodage a forme
+  compatible — Terminate, ReadyForQuery, mot de passe seuls dans leur
+  segment, reponse SSL — la ou la sonde aveugle exige une preuve forte.
+  `PasswordOrSaslResponse` nomme l'octet `p`. Les deux fixtures de
+  laboratoire sans reference de `src/parse/mod.rs` sont remplacees par les
+  trames 4 et 24 de `psql-login-no-sslrequest.pcap`. Histogramme golden :
+  "PostgreSQL" 0 -> 278 (dont 2 retransmissions que tshark ne dissèque
+  pas), "TLS" 587 -> 613, "HTTP" 71 -> 72, "Unknown" 7 904 -> 7 930.
+- **IKE et ESP** (#124, lot defense #125) : le cote « noir » des chiffreurs
+  IP. `ike::IkePacket` lit l'en-tete de vingt-huit octets (SPI initiateur et
+  repondeur, version 1 ou 2, type d'echange nomme par `ExchangeType`,
+  drapeaux avec leurs accesseurs par version, identifiant de message,
+  longueur, qui doit couvrir tout le message) et la chaine des payloads de
+  premier niveau (`IkePayload` : type brut et nomme par `PayloadType`,
+  suivant, bit critique, longueur, corps), sans entrer dans leur contenu ;
+  les octets chiffres restent tels quels dans `encrypted_body` (drapeau E
+  d'IKEv1, payload SK ou SKF d'IKEv2, qui doit etre le dernier).
+  `IkePacket::from_udp` accepte le marqueur non-ESP d'UDP 4500, et
+  `UdpEncapsulation::classify` demultiplexe ce port selon la RFC 3948 : IKE,
+  ESP ou NAT-keepalive. `esp::EspPacket` (couche transport) expose le SPI et
+  le numero de sequence, le reste etant chiffre ; ESP natif (protocole IP
+  50) le porte dans `TransportDetails::Esp`, sans payload applicatif comme
+  ICMP. Dispatch garde par port : "IKE" sur UDP 500 et 4500, "ESP" et
+  "NAT-keepalive" sur UDP 4500 ; `DecodeAsProtocol::Ike` et `::Esp` pour les
+  autres ports. Parite avec tshark 4.6.6 sur les 858 trames du corpus
+  (`tests/ipsec_golden.rs`, oracle `tools/ipsec_oracle.sh`) : 535 messages
+  IKE champ par champ et chaine des payloads, 323 paquets ESP (8 natifs, 315
+  dans UDP 4500) SPI et sequence. Histogramme golden : "IKE" 0 -> 535, "ESP"
+  0 -> 315, "Unknown" 8 754 -> 7 904. Cible de fuzz `parse_ipsec`.
+- **DIS** (#123, lot defense #125) : IEEE 1278.1, le protocole des
+  simulateurs militaires. `dis::DisPacket` decoupe les PDU d'un datagramme
+  (en-tete de douze octets : version 1 a 7, exercice, type nomme par
+  `PduType` pour les 72 types de la norme, famille de la norme ou
+  experimentale, horodatage, longueur, PDU Status en version 7) et decode
+  en valeurs typees les corps Entity State (identifiants, type, vitesse,
+  position geocentrique, orientation, apparence, marquage, parametres
+  variables), Transmitter (radio, etat, frequence, bande, puissance,
+  modulation, chiffrement) et Signal (codage, cadence, echantillons,
+  donnees) ; les autres corps restent en octets. Deux lectures :
+  `try_from`, stricte, exige que les PDU pavent exactement le datagramme —
+  c'est la sonde aveugle, DIS n'ayant pas de port IANA ; `try_from_lenient`,
+  derriere UDP 3000 ou `DecodeAsProtocol::Dis`, tolere une longueur
+  declaree plus courte que le datagramme et garde le reste dans `trailing`
+  (trois Set Data reels annoncent 48 octets pour 160, que tshark disseque
+  sans s'arreter a la longueur). Parite avec tshark 4.6.6 sur les 393
+  trames du corpus (`tests/dis_golden.rs`, oracle `tools/dis_oracle.sh`,
+  ports 6993 et 22999 declares comme tshark les force) ; sans declaration,
+  390 sont etiquetees par la sonde aveugle. Histogramme golden : "DIS" 0 ->
+  390, "Unknown" 9 144 -> 8 754. Cible de fuzz `parse_dis`.
+- **STANAG 5066 SIS** (#122, lot defense #125) : la couche qui relie les
+  applications au noeud radio HF (annexe A de l'Ed. 4, brouillon v1.6
+  publie par Isode), sur TCP 5066. `stanag5066::SisPdu` decode le premier
+  S_PDU d'un segment — preambule `90 EB`, version, taille, et les vingt-sept
+  types de primitive en valeurs typees (`SisPrimitive` : bind, liaisons
+  dures, disponibilite, gestion, donnees et donnees expediees avec
+  confirmations et rejets ; adresses de noeud, SAP, type de service,
+  retransmissions, TTL, taille et octets de l'U_PDU, blocs en erreur d'une
+  indication non-ARQ, decalage Rockwell Collins comme tshark). Stateless
+  comme GIOP : un S_PDU qui deborde du segment est accepte et marque
+  `truncated`, `consumed` donne le S_PDU suivant quand un segment en porte
+  plusieurs, un segment de continuation sans preambule reste `Unknown`.
+  Regle gardee par le port 5066 (`DecodeAsProtocol::Stanag5066` pour un
+  autre port) : trois octets fixes et deux contraintes ne suffisent pas a
+  une sonde aveugle. Parite avec tshark 4.6.6 sans reassemblage sur les 34
+  segments du corpus (`tests/stanag5066_golden.rs`, oracle
+  `tools/stanag5066_oracle.sh`), cinq S_PDU coupes entre deux segments
+  compris. Histogramme golden : "STANAG 5066" 0 -> 34, "Unknown" 9 178 ->
+  9 144. Cible de fuzz `parse_stanag5066` dans la matrice nocturne.
+- **RTPS** (#120, lot defense #125) : OMG DDSI-RTPS 2.x, le protocole
+  filaire de DDS (NGVA, GVA, systemes navals, ROS 2), successeur de
+  GIOP/MIOP. `rtps::RtpsPacket` decoupe l'en-tete (version, vendorId,
+  guidPrefix) et les sous-messages, dans leur ordre d'octets propre (flag
+  E), avec `octetsToNextHeader` nul pour un dernier sous-message etendu
+  jusqu'a la fin ; `SubmessageKind` nomme les types de la specification,
+  de DDS Security et de la plage vendeur, `SubmessageDetails` expose les
+  identifiants d'entite, numeros de sequence, compteurs, horodatages et
+  champs de fragmentation de DATA, DATA_FRAG, HEARTBEAT, ACKNACK (bitmap
+  verifie), GAP, HEARTBEAT_FRAG, NACK_FRAG, INFO_TS, INFO_DST et INFO_SRC
+  ; les donnees utilisateur (CDR), QoS en ligne et listes de locateurs
+  restent en octets. Sonde aveugle sur UDP (`rule("RTPS", Guard::Udp)`)
+  derriere une garde a cout constant sur le magic (`RTPS`, ou `RTPX`,
+  variante de RTI Connext), sur le datagramme entier (un DATA_FRAG de 60 Ko
+  depasse le plafond de sondage sans cesser d'etre du RTPS) : les
+  sous-messages doivent paver exactement le datagramme, un identifiant
+  reserve ou un corps trop court pour son type refuse le message. Les
+  « pings » RTI de seize octets (`NDDSPING`), que tshark compte comme du
+  RTPS, sortent en `RtpsPacket::Ping`. Parite avec tshark
+  4.6.6 sur les 231 trames du corpus (`tests/rtps_golden.rs`, oracle
+  `tools/rtps_oracle.sh` : version, vendorId, guidPrefix, suite des
+  sous-messages et de leurs longueurs, identifiants d'entite, numeros de
+  sequence), six implementations ; les 16 fragments IPv4 de
+  `RTPS_Discovery.pcapng` restent hors de portee par construction.
+  Histogramme golden : "RTPS" 0 -> 231, "Unknown" 9 409 -> 9 178. Cible
+  de fuzz `parse_rtps` dans la matrice nocturne.
+- **ASTERIX multi-categories** (#119, lot defense #125) : huit categories
+  de plus — **CAT 001** et **002** (plots, pistes et messages de service des
+  radars de premiere generation), **CAT 008** (meteo), **CAT 023** (etat
+  des stations sol CNS/ATM), **CAT 062** (pistes systeme du SDPS), **CAT
+  063** (etat des capteurs), **CAT 065** (etat du service SDPS) et **CAT
+  247** (numeros de version) — soit onze avec 021, 034 et 048. Sur un vrai
+  reseau de surveillance, les categories se melangent dans les datagrammes
+  (jusqu'a 18 blocs) : sur `wireshark_8579_radardata.pcap`, les 30 047
+  datagrammes qui sortaient `Unknown` passent `ASTERIX` ; le corpus est en
+  parite item par item avec tshark 4.6.6 sur 44 411 trames
+  (`tests/asterix_golden.rs`, oracle regroupe genere par
+  `tools/asterix_oracle.py`), et sur les 96 trames ou tshark bute — un
+  I002/050 de deux octets, qu'il ne lit qu'a moitie — la crate suit la
+  specification (`tests/data/asterix_tshark_limits.tsv`).
+  Le moteur UAP apprend trois formes : `ItemFormat::Extended` (extents de
+  tailles connues et bornes, le `extended` de la specification — I048/020,
+  I062/080 a sept extents, I023/101 a premier extent de deux octets...),
+  `ItemFormat::RepetitiveFx` (unites de n octets terminees par FX, non
+  bornees : I062/510) et `ItemFormat::Rfs` (Random Field Sequencing de CAT
+  001, 002 et 008, expose comme item `Ixxx/RFS` et lu a travers par
+  `AsterixRecord::item` et `rfs_items`), avec leurs pendants `Subfield::`
+  ; les items `extended` de CAT 021/034/048 passent de `Variable`
+  (non borne) a `Extended` (borne par l'edition). CAT 001 a deux UAP, plots
+  et pistes, choisis par le bit TYP de I001/020 (`UapSelector`,
+  `Uap::selector`, `AsterixRecord::uap`). `AsterixRecord::subfield` rend un
+  sous-champ d'item compose par son numero. Decodeurs types : `cat001`
+  (plot ou piste : position polaire et cartesienne, Mode 3/A, Mode C, Mode
+  2, temps tronque, vitesse, etat de piste), `cat002` (type, secteur,
+  periode de rotation, compteurs de plots, erreur de collimation, fenetre
+  dynamique), `cat008` (type, qualificatif de vecteur, comptes de vecteurs
+  et de points, contour, etat du traitement), `cat023` (type de rapport,
+  service, etat de la station sol, configuration et etat du service),
+  `cat062` (position WGS-84 et cartesienne, vitesse, acceleration, Mode
+  3/A, identification, adresse et indicatif de I062/380, numero et etat de
+  piste, mode de deplacement, niveaux mesures, altitudes geometrique et
+  barometrique, vitesse verticale, Mode 2, mesure du dernier capteur de
+  I062/340), `cat063` (connexion et NOGO du capteur, biais de temps, de
+  distance et d'azimut), `cat065` (type, lot, configuration du SDPS) et
+  `cat247` (editions annoncees) ; `cat048::TargetReport` gagne `mode_2` et
+  `mode_1` (I048/050 et /055, codes IFF militaires), avec `Mode2Code` et
+  `Mode1Code` dans `fields`. Nouvelles variantes d'`AsterixError`, en fin
+  d'enum : `ExtentOverflow`, `EmptyRfs`, `InvalidRfsFrn`. Tables derivees
+  des definitions lisibles par machine de zoranbosnjak/asterix-specs
+  (BSD-3), editions de tshark 4.6.6 (CAT 001 1.4, 002 1.2, 008 1.3, 021
+  2.7, 023 1.3, 034 1.29, 048 1.32, 062 1.21, 063 1.7, 065 1.6, 247 1.3).
+  Histogramme golden : "ASTERIX" 13 739 -> 44 507, "Unknown" 40 177 ->
+  9 409.
+- `profinet::DcpBlock` et `ProfinetPacket::blocks` : tous les blocs d'un
+  message DCP, zero-copie, avec leur BlockInfo ou BlockQualifier ;
+  `profinet::validate_frame` ; les constantes `DCP_SERVICE_*`. Nouvelles
+  variantes de `ProfinetPacketError`, en fin d'enum : `FrameTooShort`,
+  `NotDcp`, `DcpDataOverflow`, `DcpBlockOverflow`, `DcpBlockTooShort` ; le
+  minimum de `PacketTooShort` passe de 16 a 12 octets, l'en-tete fixe DCP.
+  `InvalidDcpBlockLength` ne sert plus qu'a un en-tete de bloc tronque.
+- Cible de fuzz `parse_profinet` dans la matrice nocturne.
+- **Corpus PROFINET** (#133) : sept captures reelles dans
+  `pcaps_exemple/protocols/profinet/` (2 685 trames, dont 232 PN-RT), trois
+  sources documentees dans `SOURCE.md` : cisagov/icsnpp-profinet-io-cm
+  (BSD-3-Clause), ITI/ICS-Security-Tools (CC-BY-4.0) et miguelob/ICS-Hacking
+  (GPL-3.0). Aucun decodeur ne change. `tests/profinet_corpus.rs` fige ce que
+  la crate en fait aujourd'hui, 103 trames `Profinet` et 129 `corrupted`
+  (67 UnknownFrameId, 56 InvalidDcpBlockLength, 5 InvalidNameOfStation,
+  1 PacketTooShort), presque toutes sur des trames saines : l'etat de depart
+  du correctif de #133.
+- `pcaps_exemple/LICENSES/` (#104) : textes des licences des captures
+  redistribuees (LGPL-3.0 et GPL-3.0 pour nDPI, GPL-2.0 pour Croatia Control
+  et le projet Wireshark, CC-BY-4.0 pour ITI, BSD-3 pour la CISA, MIT pour
+  foxglove), un index qui dit quel texte couvre quel dossier et ce que chaque
+  licence impose, et la position du depot sur les pieces jointes du tracker
+  Wireshark ; chaque `SOURCE.md` renvoie au sien. Provenance du corpus Modbus
+  etablie : `MODBUS-TestDataPart2.pcap` est le fichier ITI du meme nom
+  (CC-BY-4.0).
+
+### Infrastructure
+
+- **Corpus** : la licence des captures du wiki Wireshark est la GNU GPL
+  sans numero de version (<https://wiki.wireshark.org/License>), si bien que
+  toute version publiee par la FSF peut s'appliquer (GPL v2 §9), et non une
+  « GPL v2+ » de pied de page, que le wiki n'affiche plus : douze `SOURCE.md`
+  et l'index `pcaps_exemple/LICENSES/README.md` le disent desormais.
+- **FOSSA par le CLI** : nouveau workflow `.github/workflows/fossa.yml`
+  (`fossas/fossa-action` : `fossa analyze`, puis `fossa test` non bloquant)
+  sur push main, PR et declenchement manuel, actif des que le secret
+  `FOSSA_API_KEY` existe ; `.fossa.yml` exclut `pcaps_exemple/`, `fuzz/` et
+  `tools/verbench/`. L'integration Quick Import n'analysait aucune dependance
+  Cargo et, depuis les textes de licence du corpus (#104), signalait trois
+  issues de licence au projet ; elle ignore `.fossa.yml` (PR #145) et reste a
+  desactiver cote FOSSA une fois le CLI en place.
+- **Fuzz** (#108, suites de #107) : les oracles de politique du dispatch
+  (FTP, SMTP et NNTP hors port, S7Comm, COTP, Decode As) quittent la cible
+  anti-panic `parse_packetflow` pour une cible dediee `policy_dispatch` : un
+  oracle perime n'arrete plus la recherche de vrais crashs, et le corpus est
+  sauvegarde meme quand la nuit est rouge (`actions/cache/restore` +
+  `save` en `if: always()`). L'oracle texte (`fuzz/oracles/text_protocols.rs`)
+  est partage par `#[path]` avec un test de parite,
+  `tests/fuzz_policy_parity.rs`, qui confronte a chaque PR ses listes a la
+  table de dispatch — tout verbe des trois protocoles, sous dix-sept formes,
+  sur chaque port de la famille et hors port, TCP et UDP ; SMTP et NNTP ont
+  desormais leur oracle et leurs graines, et `parse_with` (Decode As, #65)
+  est fuzze par les deux cibles. Cote CI : la matrice nocturne est tiree des
+  `[[bin]]` de `fuzz/Cargo.toml` (`cargo metadata` + `fromJSON`), le job
+  `fuzz-targets-build` verifie que chaque fichier de `fuzz_targets/` a sa
+  cible et execute chaque cible une fois (`-runs=1`, donc ses oracles fixes),
+  un echec nocturne ouvre ou complete une issue `fuzz-failure`, et le chemin
+  rust-cache `fuzz -> target` est corrige.
+
+## [11.5.0] - 2026-10-09
+
+Premier protocole du lot defense (#125) : **PTP** (IEEE 1588), sur UDP
+319/320 et en couche 2 (EtherType `0x88F7`). Un consommateur qui exporte
+les etiquettes verra apparaitre `PTP` : sur le corpus, 3 221 messages UDP
+quittent `Unknown`, seul autre mouvement de l'histogramme golden, et 107
+trames de couche 2, jusque-la `UnsupportedProtocol`, sortent avec
+`protocol_internet` = `PTP`. Deux autres sorties changent : la classe
+`IpType` de trois familles d'adresses IPv6 (#136), et le texte du `Display`
+de `VlanTag`, desormais en decimal (#134).
+
+Mineure et non patch : l'API publique gagne un module, des variantes,
+toutes en fin d'enums `#[non_exhaustive]`, et un champ,
+`SrvlocHeaderV1::char_encoding` ; l'ancien `SrvlocHeaderV1::encoding` est
+deprecie. `cargo semver-checks` contre la 11.4.0 : aucune rupture, la
+depreciation suffit a exiger une mineure. Par rapport a l'archive 11.4.0,
+le paquet gagne trois fichiers (`ptp.rs` sous `checks`, `errors` et
+`parse`) ; quatorze fichiers de `src/` changent.
+
+### Ajoute
+
+- **PTP**, Precision Time Protocol (IEEE 1588, #121), premier protocole du
+  lot defense (#125). Il synchronise radars, systemes de combat et
+  avionique TSN (802.1AS), et cote OT les postes electriques (C37.238).
+  - Module `parse::application::protocols::ptp` : `PtpPacket` decode PTPv2
+    en entier (en-tete commun, corps des dix types de message, TLV listes a
+    la demande sans decodage de leur valeur : `PtpTlvs` est une vue sans
+    etat, `PtpTlvs::iter` rend un `PtpTlvIter`) et reconnait
+    PTPv1 (1588-2002) par son en-tete, le corps restant brut. Erreurs dans
+    `errors::application::ptp::PtpPacketParseError`.
+  - **UDP 319/320** : nouvelle etiquette applicative `PTP`, gardee par port.
+    Le payload doit valoir `messageLength`, ou `messageLength + 2` pour les
+    octets de correction de checksum de l'annexe E (UDP/IPv6) ;
+    `PtpPacket::try_from_udp` applique cette regle. Nouvelle variante
+    `DecodeAsProtocol::Ptp` pour PTP sur un autre port UDP.
+  - **Couche 2, EtherType `0x88F7`** (VLAN compris) : nouvelle variante
+    `NetworkProtocol::Ptp`, et la couche internet porte le message decode
+    dans `InternetDetails::Ptp`, avec `protocol_internet` = `PTP`. Le
+    bourrage Ethernet reste dans `PtpV2Message::trailing`. Nouvelle variante
+    `InternetError::PtpError` pour une trame corrompue (tronquee, longueur
+    incoherente) ; une version ou un type de message inconnus ne sont pas une
+    corruption et sortent en `InternetError::UnsupportedProtocol`, comme
+    avant pour tout `0x88F7`.
+  - Toutes les nouvelles variantes sont en fin d'enum, sur des enums
+    `#[non_exhaustive]`.
+  - Parite exacte avec tshark 4.6.6 sur les 3 328 messages du corpus,
+    trame par trame : 3 217 PTPv2 et 4 PTPv1 sur UDP, 107 PTPv2 en couche 2
+    (`tests/ptp_golden.rs`, oracle `tests/data/ptp_tshark_oracle.tsv`).
+    Aucune trame des autres dossiers n'est prise pour du PTP. Cible de fuzz
+    `parse_ptp` ajoutee a la matrice nocturne.
+
+### Corrige
+
+- **SRVLOC** (#131) : le champ Char Encoding d'un en-tete SLPv1 etait lu
+  sur un octet au lieu de deux (RFC 2165 §7). Tout ce qui le suit etait
+  decale : le XID et, pour un DAAdvert, l'error code, l'URL et la scope
+  list. Les 26 DAAdvert SLPv1 d'une capture reelle sortaient en Unknown ;
+  ils decodent desormais comme tshark 4.6.6, champ par champ. Nouveau
+  champ `SrvlocHeaderV1::char_encoding` (`u16`, MIBenum IANA : 106 pour
+  UTF-8). L'en-tete fixe SLPv1 fait 12 octets : un paquet plus court sort
+  en `Truncated`.
+- **`IpType`** (#136), classification visible dans le JSON
+  (`ip_source_type`, `ip_destination_type`) :
+  - le link-local IPv6 couvre tout `fe80::/10` (RFC 4291 §2.5.6) :
+    `fe81::` a `febf::` sortaient `Public` ;
+  - une adresse IPv4-mapped `::ffff:a.b.c.d` (RFC 4291 §2.5.5.2) se classe
+    comme l'IPv4 qu'elle porte : `::ffff:192.168.1.1` sortait `Public`, il
+    sort `Private` ;
+  - les prefixes de documentation IPv6 `2001:db8::/32` (RFC 3849) et
+    `3fff::/20` (RFC 9637) sortent `Documentation`, comme leurs pendants
+    IPv4, et non plus `Public`.
+  Les discriminants de l'enum ne bougent pas.
+- **`Display` de `VlanTag`** (#134) : l'ID VLAN et le PCP s'ecrivent en
+  decimal. En hexadecimal sans prefixe, VLAN 100 s'affichait `ID: 64`. Le
+  texte change aussi dans le `Display` de `DataLink`.
+- **README** (#135) : le tableau des API principales citait
+  `Transport::try_from(&[u8])`, supprime en 11.0.0, et `flow.to_owned()`,
+  qui compile (`PacketFlow` est `Clone`) mais rend un `PacketFlow` qui
+  emprunte toujours le buffer : c'est `flow.to_owned_flow()`. Il recommande
+  desormais `Internet::try_from_network_parts` plutot que
+  `Internet::try_from`, qui sonde a l'aveugle, et cite `parse_with`
+  (« Decode As »).
+
+### Deprecie
+
+- `SrvlocHeaderV1::encoding`, qui ne porte que l'octet de poids fort du
+  Char Encoding : lui preferer `char_encoding`.
+
+## [11.4.0] - 2026-10-08
+
+Corrige deux faux positifs de detection, reveles par le corpus du lot
+defense (#125). Un consommateur qui exporte les etiquettes applicatives
+verra **moins** de `SRVLOC` et de `DNS` : sur le corpus, 829 PTPv2
+Delay_Req et 37 datagrammes radar, jusque-la mal etiquetes, sortent
+desormais en `Unknown`. Aucune etiquette juste n'est perdue : l'histogramme
+golden ne bouge que sur ces 866 trames.
+
+Mineure et non patch, parce que l'API publique gagne une variante,
+`SrvlocPacketParseError::InvalidLanguageCode`, sur un enum
+`#[non_exhaustive]`. `cargo semver-checks` contre la 11.3.0 : aucune
+rupture. Le paquet garde la meme liste de fichiers que l'archive 11.3.0 ;
+cinq fichiers de `src/` changent.
+
+### Ajoute
+
+- **Corpus du lot defense** (epopee #125, rapport
+  `docs/protocoles-defense.md`) : 34 captures reelles pour les golden tests
+  des issues #119 a #124, chacune documentee dans le `SOURCE.md` de son
+  dossier. Aucun decodeur ne change.
+  - `pcaps_exemple/protocols/asterix/` : `wireshark_8579_radardata.pcap`
+    (41 928 datagrammes ASTERIX melant CAT 001, 002, 008, 034, 048, 062, 063
+    et 065), du CAT 021 dans de vrais datagrammes, du CAT 062 avec son RE, du
+    CAT 008 ;
+  - `rtps/` (six implementations DDS), `ptp/` (huit equipements, UDP et
+    couche 2), `stanag5066/` (SIS), `dis/` (versions 4 a 7) et `ipsec/`
+    (IKEv1, IKEv2, ESP, NAT-T).
+
+### Corrige
+
+- **SRVLOC** (#117) : 829 PTPv2 Delay_Req etaient etiquetes SRVLOC, leur
+  en-tete ayant exactement la forme d'un SLPv1 (version 1, SrvRply,
+  longueur egale au datagramme). Le champ language d'un SLPv1 doit
+  desormais etre un code ISO 639 de deux lettres ASCII (RFC 2165 §7) ; un
+  autre contenu sort en `SrvlocPacketParseError::InvalidLanguageCode`,
+  nouvelle variante.
+- **DNS** (#118) : hors port 53, la sonde aveugle prenait pour du DNS tout
+  datagramme UDP dont les douze premiers octets forment un en-tete vide
+  plausible (37 datagrammes d'un flux radar). Elle exige maintenant que les
+  sections consomment exactement le datagramme et qu'il porte au moins une
+  question ou un enregistrement. Le port 53 garde son decodeur tolerant.
+
+## [11.3.0] - 2026-09-30
+
+Strictement additive par rapport a la 11.2.0 : un protocole, **ASTERIX**,
+le format d'echange des donnees de surveillance du controle aerien
+(EUROCONTROL-SPEC-0149), en trois categories — CAT 048 (plots et pistes
+monoradar), CAT 034 (messages de service du meme radar) et CAT 021 ed. 2.x
+(ADS-B). Un consommateur qui exporte les etiquettes applicatives verra
+apparaitre `ASTERIX`.
+
+C'est le premier protocole du depot reconnu par sa **seule structure** : ni
+magic ni port. Sur le corpus, la sonde etiquette exactement les 303 trames
+que tshark voit, et aucune autre.
+
+Cote API publique, un module `parse::application::protocols::asterix` et
+ses types d'erreur ; `cargo semver-checks` contre la 11.2.0 : aucune
+rupture. Le paquet gagne huit fichiers par rapport a l'archive 11.2.0 de
+crates.io, tous sous `src/**/asterix`.
+
+### Ajoute
+
+- **ASTERIX** (EUROCONTROL-SPEC-0149), le format d'echange des donnees de
+  surveillance du controle aerien : etiquette `ASTERIX` et decodeur
+  `parse::application::protocols::asterix`.
+  - Trois categories : **CAT 048** (plots et pistes monoradar), **CAT 034**
+    (messages de service du meme radar — top nord, franchissement de
+    secteur — qui voyagent dans les memes datagrammes) et **CAT 021**
+    (ADS-B, editions 2.x). Chaque record est decoupe selon l'UAP de sa
+    categorie — items fixes, extensibles (FX), repetitifs, composes et
+    explicites (SP/RE) — et expose chaque item en zero-copie ; les items
+    d'identification, de temps et de position sont decodes en valeurs
+    typees (`cat048::TargetReport`, `cat034::ServiceMessage`,
+    `cat021::TargetReport`), valeur brute et conversion physique cote a
+    cote.
+  - **Reconnaissance par la structure seule** : ASTERIX n'a ni magic ni
+    port IANA (Wireshark propose 8600, la capture du mainteneur circule
+    sur 8611 et 8612). Un datagramme UDP n'est etiquete que si tous ses
+    data blocks sont d'une categorie connue et que leurs records se
+    decoupent exactement selon l'UAP jusqu'au dernier octet. Un bloc d'une
+    autre categorie (062, par exemple) fait echouer le decodage entier :
+    `CAT + LEN` seuls matchent trop de choses. Sur le corpus, la sonde
+    etiquette exactement les 303 trames que `tshark -Y asterix` voit, et
+    aucune autre.
+  - Les editions 0.2x de CAT 021, d'un UAP entierement different, ne sont
+    pas decodees : rien dans les octets ne permet de les distinguer.
+- **Corpus ASTERIX** dans `pcaps_exemple/protocols/asterix/` (voir son
+  `SOURCE.md`) : une capture CAT 048 multicast du mainteneur, anonymisee
+  avant depot (MAC, IP, metadonnees pcapng, trames ARP etrangeres — les 203
+  datagrammes sont identiques a l'original), et deux echantillons du depot
+  CroatiaControlLtd/asterix (GPL-2.0) — 100 datagrammes CAT 034 + 048 de
+  trafic reel, dont vingt a deux data blocks, et un flux brut de deux blocs
+  CAT 021. L'oracle tshark (`tests/data/asterix_tshark_oracle.tsv`) fige
+  la sequence des data items de chaque record des 303 trames.
+- **Cible de fuzz `parse_asterix`**, planifiee chaque nuit : les data
+  blocks pavent exactement l'entree, chaque item pointe dans le buffer.
+
+## [11.2.0] - 2026-09-25
+
+Strictement additif par rapport a la 11.1.0 : deux decodeurs, et un fuzzing
+nocturne qui redevient un signal.
+
+**GTP-U** est le dernier tunnel de l'issue #15, et le premier dont rien
+n'annonce le contenu. **LINKTYPE_NULL** (#95) decode les captures loopback
+BSD et macOS ; il apporte au passage la premiere capture OPC UA reelle du
+depot. Un consommateur qui exporte les etiquettes applicatives verra
+apparaitre `GTP-U`, et les flux internes du tunnel via `flatten()`.
+
+Cote API publique, deux ajouts : `LinkType::NULL` et la variante
+`LinkLayerError::InvalidAddressFamily`, mineure puisque l'enum d'erreur est
+`#[non_exhaustive]` depuis la 11.0.0. `cargo semver-checks` contre la
+11.1.0 : aucune rupture.
+
+Le fuzzing nocturne echouait par intermittence depuis le 30 aout sur un
+oracle perime. Il repasse au vert sur les huit cibles le 25 septembre, et
+couvre enfin `parse_giop` et le decodeur LINKTYPE_NULL (section
+Infrastructure).
+
+### Ajoute
+
+- **Tunnel GTP-U** (issue #15, la derniere case) : UDP 2152, message type
+  255. L'issue #15 est close.
+  - C'est le premier tunnel du module dont **rien n'annonce le contenu** :
+    VXLAN porte toujours de l'Ethernet, Geneve et GRE declarent un
+    EtherType, GTP-U ne declare rien. La version se lit sur le quartet de
+    tete du paquet encapsule, et `RawIpDecoder` la verifie.
+  - C'est aussi le premier dont l'en-tete se **parcourt** plutot qu'il ne se
+    saute : quatre octets optionnels des qu'un des flags E/S/PN est pose,
+    puis une chaine d'extension headers dont chacun nomme le suivant.
+  - Trois refus, pas trois devinettes : GTPv0, GTP' (bit PT a zero, c'est un
+    protocole de facturation) et tout message type autre que G-PDU — le plan
+    de controle et les Echo circulent sur le meme port sans porter le moindre
+    paquet utilisateur.
+  - Les README listaient encore CAPWAP comme seul tunnel supporte, alors que
+    GRE, IP-in-IP, VXLAN et Geneve etaient livres depuis 10.4.0 et 10.5.0. La
+    liste est refaite au passage.
+- **Cinq captures GTP-U** dans `pcaps_exemple/tunnels/gtp_u/`, jusqu'ici vide
+  (corpus de tests de Zeek, BSD 3-clause, voir son `SOURCE.md`) : le cas
+  nominal, l'IPv6 encapsule, la chaine d'extension, et deux negatifs — du DNS
+  dont le port source vaut 2152, et du GTP authentique qui n'est pas un
+  G-PDU.
+  - La ROADMAP annoncait que le corpus nDPI levait ce blocage. Il ne le
+    levait pas pour un golden de peeling : sur ses cinq captures GTP, aucun
+    G-PDU ne transporte de paquet IPv4, et le seul a porter une chaine
+    d'extension a un T-PDU vide. Rien a peler. Le corpus lui-meme est bien
+    fourni — il couvre GTP-C, GTP', l'IPv6 et un faux positif.
+  - Le `README` du corpus Zeek avertit qu'une partie de ses captures est
+    generee par scapy ou par un LLM. La provenance a donc ete verifiee sur
+    les octets — MAC virtuelles HSRP et VRRP, TTL varies, checksums valides,
+    horodatage irregulier — et non sur la parole du README.
+  - Sur la capture fragmentee, tshark compte 68 G-PDU et nous 32. Ce n'est
+    pas une divergence : ce parseur ne reassemble pas les fragments IP, et
+    sur un premier fragment la couche transport se retire avant meme
+    d'arriver a GTP. Le test le documente chiffre par chiffre.
+
+- **LINKTYPE_NULL** (issue #95) : l'encapsulation loopback BSD est decodee —
+  quatre octets de famille d'adresses, puis le paquet IP. `LinkType::NULL`
+  rejoint le catalogue.
+  - L'ordre d'octets de la famille est celui de la machine qui a capture, et
+    le format n'en garde aucune trace : le champ est lu dans les deux sens,
+    et seule une lecture coherente est retenue. Il sert de controle, pas de
+    source de verite — la version reelle vient du paquet IP. Une famille
+    inconnue, ou qui contredit cette version, rend
+    `LinkLayerError::InvalidAddressFamily` : une erreur nommee, pas une
+    devinette, comme pour LINKTYPE_IPV4 et IPV6.
+  - `LINKTYPE_LOOP` (108), le jumeau OpenBSD en ordre reseau, n'est
+    volontairement pas traite : aucune capture ne l'atteste.
+- **Premiere capture OPC UA du depot** et son golden (issue #95). Le
+  decodeur etait publie depuis plusieurs versions sans qu'aucune trame
+  reelle ne l'exerce ; il tient la parite exacte avec tshark, 187 trames sur
+  381, types de message compris (`HEL`, `ACK`, 2 × `OPN`, 182 × `MSG`,
+  `CLO`) et l'URL du point de terminaison lue en clair. C'est cette capture,
+  en LINKTYPE_NULL, qui a motive le decodeur de liaison.
+- **Golden S7CommPlus sur trames reelles** (issue #93) : les 36 trames
+  `0x72` de `s7comm_plus.pcap` remplacent la fixture synthetique qui
+  couvrait seule ce chemin. Le commentaire qui la justifiait affirmait
+  qu'aucune trame reelle n'existait, « verifie avec `tshark -Y s7comm-plus` » ;
+  ce filtre rend zero y compris sur une capture qui en est pleine. Corrige,
+  avec la methode fiable.
+
+### Infrastructure
+
+- **Le fuzzing nocturne redevient un signal.** La cible `parse_packetflow` a
+  echoue quatre nuits (30 aout, 19, 20 et 22 septembre) sur son propre
+  oracle, « FTP ne doit jamais etre detecte hors de TCP/21 », chaque fois
+  sur une entree differente — toujours une commande `STOR` hors port,
+  etiquetee FTP comme voulu. Ce n'etait pas un defaut du parseur : l'oracle
+  date de la 9.0.0, et la 10.3.0 a rendu la regle fausse en detectant hors
+  port les verbes propres a FTP (issue #66). Le fuzzer l'a trouve une
+  dizaine de jours plus tard, et ce premier signal rouge est reste plus de
+  trois semaines sans suite. Tant qu'il echouait, un vrai panic de cette
+  cible serait passe inapercu : libFuzzer s'arrete au premier crash, et un
+  job en echec ne sauvegarde pas son corpus.
+  - L'oracle suit desormais la politique par defaut : TCP/21, ou hors de ce
+    port une commande FTP complete (ligne CRLF, UTF-8, arite) dont le verbe
+    n'appartient qu'a FTP, jamais sur un port SMTP ou NNTP. Le Decode As
+    (#65) n'est pas couvert : aucune cible n'appelle `parse_with`. L'oracle
+    recopie la liste des verbes, les ports et `PROBE_CAP` au lieu de les
+    importer — un oracle qui lirait ceux du parseur ne pourrait pas les
+    prendre en defaut — et chacun renvoie a sa copie.
+  - La cible porte enfin une graine FTP, comme S7Comm et COTP : la meme
+    commande hors port, sur un port SMTP et sur UDP. Sans elle, le chemin
+    FTP hors port n'etait atteint que par hasard, quatre nuits sur
+    trente-quatre. Les oracles fixes de politique (COTP, et desormais FTP)
+    ne dependent pas de l'entree : ils passent dans le bloc `init`, executes
+    une fois au demarrage au lieu de chaque iteration.
+  - Verifie par mutation, cette fois par le fuzzer lui-meme. Si la sonde
+    hors port accepte tout verbe FTP, 3 millions d'executions en 300 s ne
+    voient rien sans graine ; avec, l'oracle casse en 4 191 executions,
+    oracles fixes desactives. Cette mutation, le retrait du veto SMTP/NNTP
+    et la reduction de la sonde a sa garde `starts_with_one_of` font tous
+    trois casser les oracles fixes au demarrage. Les quatre entrees
+    fautives de la CI passent.
+  - Ces mutations ont montre deux trous des tests unitaires : rien ne
+    verifiait que la regle exige une commande complete (nouveau test
+    `unambiguous_verbs_require_a_complete_command`), ni que le veto vaut
+    aussi pour le port source (`packetflow_does_not_relabel_text_protocol_bodies_as_ftp`
+    couvre desormais les deux sens).
+  - `flow.to_owned()` n'etait plus que le `Clone` de `ToOwned` depuis le
+    renommage en `to_owned_flow` (a488065) : aucune cible ne fuzzait la
+    conversion vers `PacketFlowOwned`. `parse_packetflow` et
+    `parse_linktype` appellent desormais `to_owned_flow`.
+- **`parse_giop` tourne enfin la nuit.** Livree avec le decodeur GIOP
+  complet (11.0.0), la cible compilait en CI mais manquait a la matrice de
+  `fuzz.yml` : la CI ne l'executait jamais.
+- **`parse_linktype` fuzze enfin le decodeur LINKTYPE_NULL.** Son selecteur
+  etait une liste ecrite a la main, a laquelle le decodeur loopback BSD
+  (#95) n'avait pas ete ajoute : aucune cible ne l'atteignait. LINKTYPE_IPV4
+  et IPV6 manquaient aussi — leur decodeur, partage avec RAW, etait fuzze,
+  mais pas leur controle de version (une trame IPv6 declaree
+  LINKTYPE_IPV4). Le catalogue est desormais tire de `is_supported` : tout
+  decodeur que la bibliotheque dispatche est fuzze d'office. Verifie par
+  mutation : un panic injecte dans le decodeur NULL est atteint en 1 207
+  executions depuis un corpus vide, quand l'ancienne cible ne l'atteignait
+  pas en 7,5 millions.
+
+## [11.1.0] - 2026-09-20
+
+Strictement additif par rapport a la 11.0.0 : **UMAS**, le protocole proprietaire de Schneider
+Electric qui pilote les automates Modicon, est reconnu et son en-tete
+decode (issue #10).
+
+L'issue attendait depuis un an une capture que la ROADMAP decrivait comme
+inexistante — « aucune trame publique n'existe ». C'etait faux : le corpus
+de tests de nDPI en porte 180.
+
+### Ajoute
+
+- **UMAS** (issue #10) : `UmasPacket` decode l'identifiant de session, le
+  code fonction et les donnees brutes (zero-copie) d'un PDU UMAS, transporte
+  par Modbus/TCP sous le code fonction 0x5A reserve au constructeur.
+  L'enveloppe Modbus n'est pas redecodee : le parseur reutilise `MBAP`, qui
+  valide deja l'identifiant de protocole et la longueur declaree.
+  - La sonde passe **avant** celle de Modbus/TCP — meme relation que S7Comm
+    devant COTP, le protocole le plus specifique gagne l'etiquette. Un test
+    dedie verifie qu'elle ne vole pas le trafic Modbus ordinaire : sur le
+    corpus Modbus du depot, 382 trames restent `ModbusTCP` et une seule
+    devient `UMAS` (`MODBUS-TestDataPart2.pcap` trame 229, une requete 0x5A
+    que l'automate refuse — sa reponse, code fonction 0xDA, est une exception
+    Modbus et reste `ModbusTCP`).
+  - `UmasFunction` ne nomme que `Reply` (0xFE), la seule valeur qu'une trame
+    reelle du depot atteste. UMAS etant sans specification publique, les noms
+    de codes de requete qui circulent viennent de retro-ingenierie et ne sont
+    pas verifiables depuis une capture : ils sont exposes bruts. L'enum est
+    `#[non_exhaustive]`, chaque nom pourra arriver en mineure le jour ou une
+    trame le justifie.
+  - Golden sur trames reelles (`tests/umas_golden.rs`) : requete et reponse
+    recoupees champ a champ, la reponse portant le modele de l'automate en
+    clair (`140 CPU 311 10`), puis les 180 trames de la capture — deux
+    sessions, quatorze valeurs distinctes de code fonction.
+- Capture `pcaps_exemple/protocols/umas/umas.pcap` (corpus nDPI, LGPL-3.0,
+  commit epingle et SHA-256 dans son `SOURCE.md`), 191 trames.
+
+## [11.0.0] - 2026-09-20
+
+**Jamais publiee sur crates.io** : UMAS (ci-dessus) a ete livre avant que le
+tag ne soit pose, et la 11.1.0 la remplace en la contenant entierement. Les
+ruptures decrites ici sont donc celles que rencontre un consommateur qui
+passe de la 10.5.0 a la 11.1.0, et `MIGRATION-11.md` reste son guide.
+
+Version majeure : elle solde en une fois les ruptures d'API accumulees dans
+l'epic #76 pendant la fenetre de stabilite 10.x — et la cause qui les avait
+produites. Six des quatorze ruptures etaient « ajouter un champ ou une
+variante a un type exhaustif » : `#[non_exhaustive]` couvre desormais les
+erreurs et tout ce que le parseur construit, de sorte que completer un
+decodeur ou nommer une erreur redevient un changement mineur.
+
+Au passage : GIOP est decode en entier et tient la parite avec tshark
+message par message ; SYN+FIN ne fait plus disparaitre la couche transport ;
+les deux modeles rendent le meme JSON ; quatre decodeurs cessent d'allouer
+dans le chemin de detection (-7 a -17 % sur du trafic reel).
+
+Guide de migration, une entree par rupture : `MIGRATION-11.md`. La liste est
+recoupee avec `cargo semver-checks` (voir le guide, §Recoupement).
+
+### Rupture
+
+- **GIOP complet** (epic #76) : les huit types de message, GIOP 1.0, 1.1 et
+  1.2, les deux endianness. Migration : `MIGRATION-11.md` §GIOP.
+  - `GiopReply` n'est plus une struct vide : `GiopReply<'a> { request_id,
+    reply_status, service_contexts, body, detail }`. `GiopReplyDetail` type
+    le body selon le statut — `UserException { exception_id, members }`,
+    `SystemException { exception_id, minor_code, completion_status }`,
+    `LocationForward(Ior)`, `NeedsAddressingMode` — et degrade en
+    `Undecoded` sans faire echouer le message.
+  - `GiopMessage` gagne `CancelRequest`, `LocateRequest`, `LocateReply`,
+    `CloseConnection`, `MessageError` et un `Fragment(GiopFragment<'a>)`
+    decode (`request_id` a partir de GIOP 1.2 seulement) ; les unit structs
+    placeholder disparaissent. `Other` ne designe plus qu'un body illisible.
+  - `TargetAddress::ProfileAddr` porte un `TaggedProfile { tag,
+    profile_data }` ; `TargetAddress::ReferenceAddr` porte `{
+    selected_profile_index, ior }` au lieu d'un span brut. Nouveau module
+    `giop::ior` : `Ior`, `TaggedProfile`, et `IiopProfile` (hote, port, object
+    key) via `TaggedProfile::iiop()` / `Ior::iiop()`.
+  - `GiopRequest::requesting_principal: Option<&[u8]>` (GIOP 1.0/1.1).
+  - `GiopRequest::stub_data` exclut desormais le padding d'alignement sur 8
+    de GIOP 1.2 (il etait compte dans le stub : 96 octets au lieu des 92 de
+    tshark sur la trame 19 de `corba.pcap`).
+  - **Un message qui deborde de son segment TCP est accepte** et marque
+    `GiopPacket::truncated`, au lieu d'etre rejete en `TruncatedBody` : le
+    premier segment d'un gros message sortait `Unknown` du pipeline. La
+    variante `GiopParseError::TruncatedBody` et
+    `checks::...::validate_total_length` disparaissent.
+  - **Le domaine de chaque champ suit la version du message.** Un statut de
+    Reply (`LOCATION_FORWARD_PERM`, `NEEDS_ADDRESSING_MODE`) ou de
+    LocateReply (`OBJECT_FORWARD_PERM`, `LOC_SYSTEM_EXCEPTION`,
+    `LOC_NEEDS_ADDRESSING_MODE`) que seul GIOP 1.2 definit est refuse sur un
+    message 1.0 ou 1.1, et le message Fragment (type 7) sur un header 1.0 :
+    du trafic legacy malforme ou hostile exposait sinon un message valide
+    mais contradictoire. `GiopReplyStatus::from_wire(value, minor_version)`
+    et `GiopLocateStatus::from_wire(..)` remplacent leurs `TryFrom<u32>`, qui
+    ne pouvaient pas connaitre la version.
+  - `GiopParseError::UnknownTargetDiscriminator` porte le `u16` du wire (plus
+    de saturation a 255) ; nouvelles variantes `UnknownReplyStatus { status,
+    minor_version }`, `UnknownLocateStatus { .. }`,
+    `MessageTypeNotInVersion { .. }`, `InvalidProfileCount` ; l'enum devient
+    `#[non_exhaustive]`.
+  - `checks::application::giop::extract_message_length` (variante historique
+    big-endian seule) est supprimee au profit de `extract_message_size`.
+  - Tous les types GIOP publics deviennent `#[non_exhaustive]` : les
+    prochains ajouts seront additifs.
+
+- **Purge de la surface publique** (lot B de l'epic #76 : #26, #27, #32,
+  #48). Migration : `MIGRATION-11.md` §Purge.
+  - `checks` devient un module interne. Ses ~120 `validate_*` /
+    `extract_*` etaient publics sans etre une API assumee et figeaient par
+    SemVer tout refactor de validation. La seule brique destinee aux
+    consommateurs, la verification opt-in des checksums, est promue en
+    `packet_parser::checksum` (ex-`checks::checksum`).
+  - `PacketFlow::to_owned()` devient `to_owned_flow()` : l'ancien nom
+    masquait `ToOwned::to_owned` et rendait un type different et ampute
+    (#27). Pas d'alias deprecie : le nom etait le piege.
+  - `parse_timing` est enfin additive (#26) : une seule forme de
+    `ParseTiming` (5 `u64`, a zero sans la feature), `parse_timed` et
+    `PacketFlow::try_from_timed` toujours disponibles. Supprimes :
+    `timing::{now, elapsed_ns, ParseReport, LayerAttempt}` et la macro
+    exportee `time_block_ns!` (zero appelant). Le pipeline duplique
+    disparait au profit d'un pipeline unique ; `parse()` ne regresse pas
+    (~252 ns contre ~269 ns sur une trame TCP reelle) et activer la feature
+    ne le ralentit plus.
+  - Code mort public supprime : `ApplicationProtocol` et son `Display`, 9
+    des 10 variantes d'`ApplicationError` (qui devient `#[non_exhaustive]`),
+    `TryFrom<&[u8]> for Transport` (devinait TCP puis UDP a l'aveugle),
+    `ParseError::PacketTooShort`, l'alias `ParsedPacketError`,
+    `QuicPacketType::Unknown` et sa branche morte (#48).
+  - `Packet::packet_to_pcap(path)` prend le chemin de sortie au lieu
+    d'ecrire `output.pcap` en dur dans le repertoire courant.
+  - La feature vide `doc-diagrams` est supprimee.
+
+- **Erreurs** (lot A de l'epic #76 : #21, #24, reliquat de sprint_02).
+  Migration : `MIGRATION-11.md` §Erreurs.
+  - `#[non_exhaustive]` sur les 46 enums d'erreur publics (#21) : ajouter
+    une variante d'erreur n'est plus une rupture. Un test lit `src/errors`
+    pour qu'un nouveau protocole ne puisse pas l'oublier.
+  - **SYN+FIN : conserver et signaler** (#24). Un en-tete TCP lisible dont
+    les drapeaux (SYN et FIN ensemble) ou les bits reserves sont incoherents
+    **garde sa couche transport** — donc ses ports et la correlation de flux
+    — et l'anomalie est rapportee dans `corrupted`, nommee :
+    `TcpError::InvalidFlags { flags }` ou `ReservedBitsSet { bits }`, au
+    lieu du trompeur `InvalidHeaderLength`, qui disparait. La couche
+    application n'est pas sondee. `TcpPacket::try_from` ne rejette plus ces
+    segments ; `TcpPacket::anomaly()` les qualifie. `CorruptedLayer`
+    distingue desormais corruption structurelle (couche `None`) et anomalie
+    semantique (couche conservee).
+  - **Un seul chemin d'erreur de liaison** : Ethernet rapporte
+    `ParseError::InvalidLinkLayer(LinkLayerError::Truncated { link_type:
+    ETHERNET, required, actual })` comme RAW, SLL et SLL2.
+    `ParseError::InvalidDataLink` disparait ; `DataLinkError` reste l'erreur
+    de `DataLink::try_from`, hors de `ParseError`. Contrat verifie par test
+    sur les sept LINKTYPE cables.
+  - `DataLinkError::DataLinkTooShort(u8)` devient `{ required, actual }` en
+    `usize` : l'ancienne variante tronquait la longueur a 8 bits (une trame
+    de 300 octets coupee dans sa pile VLAN annoncait 44 octets).
+
+- **Champs et variantes** (lot C de l'epic #76 : #82, #9). Migration :
+  `MIGRATION-11.md` §Champs et variantes.
+  - `DataLink::vlan_stack` / `DataLinkOwned::vlan_stack` : la pile VLAN
+    complete, du tag externe (S-VLAN) au tag interne (C-VLAN) (#82).
+    `VlanStack<'a>` est une vue zero-copie, sans allocation ; serialisee
+    seulement a partir de deux tags, donc le JSON des trames sans tag ou a
+    tag unique ne change pas. `vlan` reste le tag interne. Le chemin sans
+    tag ne regresse pas (253 ns contre 252).
+  - `IpType::Broadcast` : `255.255.255.255` sortait classee `Public`, faute
+    de bras dedie (#9).
+  - `#[non_exhaustive]` etendu a 124 types de `parse` : les enums qui
+    suivent une spec ou un registre evolutif, et les structs que seul le
+    parseur construit. C'est la cause racine de l'epic : six des quatorze
+    ruptures etaient « ajouter un champ ou une variante a un type
+    exhaustif ». Restent exhaustifs, avec leur raison, les types que les
+    consommateurs construisent (`VlanTag`, `CorruptedLayer`, `TlsVersion`,
+    `BridgeId`, `ParseTiming`, `Packet`, tout `owned`) et les enums fermes
+    par construction (`Ecn`, `QuicPacketType`). Regle verrouillee par
+    `tests/public_types_are_non_exhaustive.rs`.
+
+- **Un seul schema JSON pour les deux modeles** (lot E de l'epic #76 : #22).
+  Migration : `MIGRATION-11.md` §JSON.
+  - `PacketFlow` et `PacketFlowOwned` decrivaient la meme trame sans une
+    seule cle L3/L4 commune. **Le schema du modele owned fait foi** : le
+    modele borrowed serialise desormais `source_ip`, `destination_ip`,
+    `ip_source_type`, `ip_destination_type`, `protocol_internet` et
+    `protocol_transport` (au lieu de `source`, `destination`, `source_type`,
+    `destination_type`, `protocol_name`, `protocol`). Decision du
+    2026-09-20, contre la recommandation de l'issue : le seul consommateur
+    connu, Sonar, lit les cles owned et aucune cle borrowed ; et dans
+    l'objet aplati du flux, `source_ip` a cote de `source_port` et
+    `source_mac` est moins ambigu que `source`. Les noms de champs Rust ne
+    changent pas.
+  - `protocol_transport` vaut le nom du protocole (`"TCP"`, `"UDP"`), dans
+    les deux modeles. `Display` de `TransportProtocol::Tcp` redevient
+    `"TCP"` : il avait ete deforme en `"Tcp"` pour faire passer un test qui
+    comparait au `Debug`, seule entree de casse mixte de la table.
+  - `payload_protocol` n'est plus serialise par le modele borrowed (le
+    protocole de transport n'apparait qu'une fois).
+  - Corrige : la conversion owned perdait le LINKTYPE declare quand
+    plusieurs LINKTYPE partagent une forme — un IPv6 encapsule dans de
+    l'IPv4 sortait `link_type: 101` (RAW) cote owned contre `229` (IPV6)
+    cote borrowed ; de meme pour IEEE802_3BR et ETHERNET. Trouve par le
+    nouveau test.
+  - `tests/json_schema_parity.rs` compare le JSON du **flux complet** des
+    deux modeles sur chaque trame de chaque capture du depot (> 4 000
+    trames : TCP, UDP, VLAN, tunnels, couches corrompues). Les tests
+    existants ne comparaient que `data_link`.
+
+- **Zero copie** (lot D de l'epic #76 : #61, #63). Migration :
+  `MIGRATION-11.md` §Zero copie. Regle du lot : chaque rupture est mesuree
+  sur du trafic reel (release, meilleur de 7), borne superieure prise au
+  prealable en neutralisant la collecte ; ce qui ne gagne rien est retire.
+  - DNS : la rdata des resource records est empruntee (`&'a [u8]`) ;
+    `DnsPacket`, `Answer`, `AuthoritativeNameServer`, `AdditionalRecord` et
+    `RawRecord` prennent une lifetime (#61). **-7,5 %** par message (357 ->
+    330 ns, 27 reponses DNS reelles).
+  - HTTP : `HttpRequest::headers` devient `HttpHeaders<'a>`, une vue validee
+    une fois au parsing (`iter()`, `get(nom)` insensible a la casse, `len()`)
+    (#63). **-17 %** sur le `parse()` d'une vraie requete (585 -> 488 ns) :
+    le `Vec` etait paye par chaque paquet HTTP rien que pour etre reconnu.
+  - EtherNet/IP : `EtherNetIpCommonPacketFormat::items` devient
+    `EtherNetIpCpfItems<'a>` (`iter()`, `get(i)`, `len()`). **-11,6 %** (159
+    -> 140,5 ns). Un compteur d'items forge ne pilote plus d'allocation.
+  - OPC UA : `OpcuaPacket::chunks` devient `OpcuaChunks<'a>` (`iter()`,
+    `get(i)`, `len()`), re-decodes a l'iteration. **-15 %** (160 -> 135 ns,
+    520 trames reelles).
+  - **Retire de la 11.0.0 : PostgreSQL (#62).** Mesure sur 8 209 trames
+    reelles (session JDBC de la wiki Wireshark, 3 708 Parse/Bind) :
+    neutraliser les `Vec` de Parse/Bind/Startup ne gagne que 1,5 % (402 ->
+    396 ns), et pre-dimensionner celui des messages ne gagne rien — a 5
+    messages par trame, le temps part dans leur decodage. La rupture ne se
+    justifie pas ; les types PostgreSQL restent en l'etat.
+
+### Deprecie
+
+- `convert::hex_stream_to_bytes`, qui panique sur une entree invalide : lui
+  preferer `try_hex_stream_to_bytes`.
+
+### Ajoute
+
+- `giop::giop_messages(payload)` : itere sur les messages GIOP consecutifs
+  d'un meme segment TCP. `giop::find_giop_message(payload)` : resynchronise
+  un appelant qui suit ses flux sur un header GIOP demarrant au milieu d'un
+  segment de continuation, ou sous un en-tete MIOP.
+- `GiopHeader::is_little_endian()` et `has_more_fragments()`.
+- **Regression differentielle GIOP contre tshark**
+  (`tests/giop_tshark_regression.rs`, oracle `tools/giop_oracle.sh`) : 134
+  messages reels compares sur 15 colonnes, aucune divergence ; les
+  comportements propres a tshark (suivi de flux, reassemblage, bug #1934 sur
+  les Fragment 1.1) sont nommes un par un. Couverture du corpus figee par
+  test ; troncature et mutation de chaque message reel sans panique ; cible
+  de fuzz `parse_giop`.
+- Dix captures GIOP reelles : trois pieces jointes du tracker Wireshark et
+  sept captures d'un labo omniORB rejouable (`tools/capture_giop.sh`,
+  `tools/giop_lab/`). Provenance et limites :
+  `pcaps_exemple/protocols/giop/SOURCE.md`.
+
+## [10.5.0] - 2026-09-09
+
+Version mineure, strictement additive (`cargo semver-checks` : 223
+controles, aucune rupture) : les tunnels VXLAN et Geneve sont peles
+recursivement depuis des captures reelles produites au labo, et les tags
+VLAN empiles (802.1ad / QinQ, double 802.1Q) sont enfin consommes entiers —
+une trame QinQ ressortait sans couche 3 et sans signal depuis la premiere
+version. Le parseur retient le tag interne ; la pile complete attend la
+11.0.0 (#76).
+
+### Ajoute
+
+- **Tunnels VXLAN et Geneve** (issue #15, suite) : VXLAN (RFC 7348, UDP
+  4789, bit I seul — GBP/GPE refuses, pas devines) et Geneve (RFC 8926, UDP
+  6081, options sautees, messages de controle OAM refuses) sont peles
+  recursivement vers leur trame Ethernet interne (ou IP brute pour Geneve
+  0x0800/0x86dd). Golden sur six trames reelles des captures locales
+  `pcaps_exemple/tunnels/{vxlan,geneve}` — ARP interne en broadcast, ICMP et
+  ICMPv6 — produites par la recette reproductible
+  `tools/capture_vxlan_geneve.sh` (namespaces ephemeres, provenance
+  documentee dans les README des sous-dossiers). Il ne reste que GTP-U,
+  toujours sans capture reelle.
+
+### Corrige
+
+- **QinQ / tags VLAN empiles** (issue #82) : `DataLink::try_from` ne
+  consommait qu'un tag, et seulement `0x8100`. Une trame 802.1ad (S-tag
+  `0x88a8` ou `0x9100` historique, puis C-tag) ressortait sans VLAN ni
+  couche 3, et un double `0x8100` avec le seul tag externe — dans les deux
+  cas sans signal d'erreur. La pile est desormais consommee entiere (TPID
+  `0x8100`, `0x88a8`, `0x9100`), `ethertype` et `payload` designent la vraie
+  couche 3, et `vlan` retient le tag **interne** (C-VLAN), le seul dont
+  `inner_ethertype` est cette couche 3. Une trame tronquee au milieu de la
+  pile remonte `DataLinkTooShort`. Golden sur les 86 trames reelles de
+  `pcaps_exemple/vlan/pppoe-over-qinq.pcap` (double 0x8100 3704/2474 devant
+  du PPPoE, non decode). Le tag externe n'est pas expose : cela demande un
+  champ `vlan_stack` sur `DataLink`/`DataLinkOwned`, qui ne sont pas
+  `#[non_exhaustive]` — rattache a l'epic #76. Additif : constantes
+  `TPID_8021Q`/`TPID_8021AD`/`TPID_QINQ_LEGACY`, `VlanTag::is_tpid`,
+  `checks::data_link::validate_data_link_vlan_stack_length`.
+
+## [10.4.0] - 2026-08-20
+
+Version mineure, strictement additive : cinq nouveaux protocoles decodes
+depuis des trames reelles (LLMNR, SSDP, NetBIOS, STP, OpenVPN), les tunnels
+GRE et IP-in-IP peles recursivement, l'API « Decode As » cote appelant, la
+reconnaissance S7CommPlus, les captures reelles EtherNet/IP et GIOP avec
+leurs golden tests, et deux corrections de validation revelees par les
+trames reelles (DNSSEC AD/CD, CDR GIOP). Les dix findings de la revue de
+code multi-angles ont ete corriges avant publication.
+
+### Ajoute
+
+- **Tunnels GRE et IP-in-IP** (issue #15, partiel) : GRE v0 (RFC 2784/2890,
+  options checksum/cle/sequence) portant IPv4, IPv6 ou Ethernet 0x6558, et
+  IP-in-IP (protocoles IP 4 et 41) sont peles recursivement — le flux
+  externe est etiquete GRE / IP-in-IP et le paquet interne devient un flux
+  imbrique complet. ERSPAN, GRE v1 (PPTP) et les keepalives sont refuses,
+  pas devines. Golden sur cinq trames reelles du corpus, dont un GRE-dans-
+  GRE authentique. VXLAN, GTP-U et Geneve attendent des captures reelles.
+
+- **API « Decode As »** (issue #65) : `ParseConfig::decode_as(port, proto)`
+  et `parse_with` permettent de declarer « mon FTP tourne sur 2121 ». Les
+  ports declares etendent les gardes de la table — port ET contenu, garde
+  de transport conservee, memoisation partagee — sans changer d'un octet le
+  comportement de `parse`. Propagee jusque dans les tunnels. Nouvel enum
+  public `DecodeAsProtocol` (`#[non_exhaustive]`).
+
+- **Detection OpenVPN** (issue #5) : nouveau module openvpn (opcodes 1-10,
+  key id, session id, forme datagramme UDP et prefixe u16 TCP avec
+  coalescence), cable sur le port 1194. Anti-faux-positifs : key id 0
+  obligatoire sur les hard resets (neutralise les collisions avec les
+  record types TLS), resets bornes a 1280 octets. Golden sur trames
+  reelles (wiki Wireshark, sessions tls-auth UDP et TCP completes).
+
+- **Captures reelles EtherNet/IP et GIOP** (issues #57 et #58) : corpus
+  etendu avec trois captures ITI/ICS-Security-Tools (CC-BY-4.0) et
+  corba.pcap de nDPI (LGPL-3.0), golden tests contre tshark. Les trames
+  GIOP reelles ont revele et fait corriger deux defauts du parseur : le
+  message_size suit le bit d'endianness des flags (§9.4.1), et le layout
+  CDR des Request (discriminant short, alignement naturel, TaggedProfile).
+
+- **S7CommPlus reconnu** (issue #11) : `S7ProtocolVersion` expose la version
+  du protocole S7 parse, et un payload TPKT/COTP au protocol id 0x72
+  (S7-1200/1500) est identifiable via `S7CommPacket::detect_protocol_version`
+  au lieu d'etre confondu avec un S7 corrompu. Aucune trame 0x72 dans le
+  corpus : golden en attente de capture.
+
+- **Metadonnees diffusion/multicast** (issue #9) :
+  `MacAddress::is_broadcast/is_multicast/is_unicast` au niveau L2,
+  `Internet::destination_is_multicast/destination_is_limited_broadcast` au
+  niveau L3. La variante `IpType::Broadcast` est une rupture d'enum,
+  portee par l'epic #76.
+
+### Corrige
+
+- **Requetes DNSSEC rejetees** : les bits AD et CD (RFC 4035 §3.1.6) etaient
+  traites comme le champ reserve Z et toute requete CD=1 etait refusee —
+  revele par une trame reelle en tunnel 6in4. Seul le bit 6 est encore Z.
+
+- **Doc-tests casses par STP** : l'attribut aquamarine residuel du module
+  stp est retire (la crate a supprime cette dependance en 10.3.0).
+
+### Ajoute
+
+- **Reconnaissance S7CommPlus** (issue #11) : S7Comm (protocol id 0x32,
+  S7-300/400) et S7CommPlus (0x72, S7-1200/1500, parfois appele « v3 »)
+  sont deux protocoles distincts partageant l'encapsulage TPKT/COTP sur
+  TCP/102. Nouvel enum `S7ProtocolVersion` et methodes additives
+  `S7CommPacket::protocol_version` / `S7CommPacket::detect_protocol_version`
+  (adossees a `extract_s7_protocol_version` et `is_s7commplus_payload` dans
+  les checks) : un payload 0x72 est identifie au lieu d'etre confondu avec
+  un S7Comm invalide. `try_from` continue de rejeter 0x72
+  (`InvalidS7ProtocolId`), le decodage complet de S7CommPlus restant hors
+  perimetre. Aucune trame 0x72 dans le corpus du depot (tshark
+  `-Y s7comm-plus` rend zero sur pcaps_exemple, 4SICS inclus) : tests
+  synthetiques, pas de golden possible.
+
+## [10.3.0] - 2026-08-20
+
+Version mineure, strictement additive, issue de la campagne de resorption du
+backlog : la methode de regression tshark generalisee (Modbus, DNS, TLS) avec
+parite verifiee, quatre parseurs completes (DHCP, SRVLOC, GIOP, QUIC Retry),
+la detection hors port des verbes non-ambigus, et trois corrections de
+classification revelees par le nouveau harnais (NXDOMAIN, DNS/TCP, gardes de
+transport des sondes aveugles).
+
+Performance : sur le corpus reel complet (249 682 paquets, benchmark_db), le
+pipeline passe de 518 a 475 ns/paquet en moyenne. Le paquet de reference de
+verbench — un segment TLS de continuation qui balaye toute la table jusqu'a
+« Unknown » — paye en revanche la mecanique de la table declarative
+(~500 ns contre ~415) : compromis assume, le pire cas borne remplace les
+pathologies x60/x2545 de l'ancienne cascade sur trafic hostile.
+
+### Ajoute
+
+- **Regression tshark generalisee** (epic #70) : le pattern de
+  `s7comm_regression` — comptes et digests FNV-1a generes independamment
+  avec tshark — est applique aux corpus Modbus TCP (#71), DNS (#72) et TLS
+  (#73) dans `tests/tshark_regression.rs`. Parite tshark exacte sur Modbus ;
+  chaque ecart DNS/TLS est fige et justifie trame par trame (reassemblage
+  TCP, Client Hello SSLv2-compatible). S'y ajoutent le snapshot
+  `tests/golden_pcaps.rs` (histogramme de classification du corpus) pose
+  comme filet de la refonte du dispatch.
+
+- **DNS sur TCP** (issue #72) : `DnsPacket::try_from_tcp` decode le premier
+  message prefixe de sa longueur (RFC 1035 §4.2.2), cable dans la table de
+  dispatch sur TCP/53.
+
+- **DHCP au-dela d'Ethernet** (#49) : htype accepte les types materiels
+  IANA 1..=37, hlen 1..=16, coherence htype/hlen validee.
+
+- **SRVLOC** : dispatch v1 par code fonction — seul DAAdvert recoit son
+  layout, fini le layout unique applique a tout (#50) — et bodies v2
+  SrvRqst/SrvRply decodes (RFC 2608 §8.1/8.2), exposes par la nouvelle
+  methode additive `SrvlocPacket::body()` et des types non_exhaustive (#53).
+
+- **GIOP** : le body est dispatche selon message_type — Request 1.0/1.1/1.2
+  avec endianness, Reply etiquete (#52). Le decodage du body Reply attend
+  la 11.0.0 (struct publique exhaustive, epic #76).
+
+- **QUIC Retry** : token et Retry Integrity Tag (RFC 9001 §5.8) separes et
+  exposes par les methodes additives `retry_token()` /
+  `retry_integrity_tag()` ; un Retry trop court pour son tag est refuse (#54).
+
+- **Detection hors port standard des verbes non-ambigus** (#66) : PASV/STOR/
+  RETR/APPE... (FTP), EHLO/HELO/MAIL/RCPT (SMTP), ARTICLE/XOVER/IHAVE...
+  (NNTP) sont detectes par contenu sur TCP quel que soit le port — la
+  commande complete est validee par le parseur du protocole et le verbe doit
+  n'exister que chez lui. Les verbes partages (QUIT, LIST, MODE...) et les
+  reponses (formes identiques octet pour octet) restent gardes par port.
+  Oracle negatif : histogramme du corpus et regression s7comm strictement
+  inchanges, zero faux positif.
+
+### Corrige
+
+- **NXDOMAIN des resolveurs recursifs** : la validation DNS exigeait aa=1
+  sur rcode 3, regle qu'aucune RFC n'impose — deux reponses reelles du
+  corpus etaient rejetees. `DnsFlagsError::AaInNameError` n'est plus
+  produite (variante conservee pour compatibilite).
+
+- **Faux positifs des sondes aveugles** : NTP lisait un Encrypted Alert TLS
+  (0x15) comme un en-tete plausible et etiquetait « NTP » du TCP ; la forme
+  datagramme DNS sondee sur TCP etiquetait des fragments de reassemblage.
+  Les sondes aveugles portent desormais les gardes de transport que les RFC
+  imposent (NTP/DHCP/QUIC → UDP, TLS/SSH/HTTP/Bitcoin/GIOP/ModbusTCP/MQTT/
+  OPC UA → TCP ; EtherNet/IP, SNMP et SRVLOC restent bi-transport). Les
+  quatre etiquettes NTP de l'histogramme du corpus etaient toutes fausses.
+
+## [10.2.0] - 2026-08-19
+
+Version mineure, strictement additive : un nouveau LINKTYPE (IEEE 802.3br,
+mPackets express) qui debloque 21 % du corpus de reference, et une campagne
+d'infrastructure qui solde l'issue #31 (MSRV verifiee, Cargo.lock versionne,
+cargo-deny bloquant, job macOS, lints anti-panic).
+
+`cargo semver-checks check-release` contre `v10.1.0` : 223 controles, aucune
+rupture. La fenetre de stabilite ouverte par la 10.0.0 tient.
+
+La suite de tests n'a plus aucune dependance systeme : les bindings natifs
+libpcap/Npcap (dev-dependencies `pcap` et `pnet`) sont remplaces par
+`pcap-file`, du Rust pur.
+
+### Infrastructure
+
+- Solde de l'issue #31 (audit 8.1.0) : la CI verifie desormais tout ce que le
+  depot promet. `rust-version = "1.88"` declare dans `Cargo.toml` (let-chains
+  et `is_multiple_of` l'exigent) et verrouille par un job MSRV dedie ;
+  `Cargo.lock` (racine et `fuzz/`) versionnes et imposes par `--locked` dans
+  tous les jobs ; nouveau job matrice macOS/Windows pour la crate publiee
+  (aucune dependance systeme, elle doit compiler partout — les membres du
+  workspace restent sur Linux a cause de libpcap) ; `cargo-deny` passe
+  d'hebdomadaire a bloquant sur chaque push/PR. Le corpus de fuzz reste hors
+  git, choix delibere : 4 401 fichiers binaires (17 Mo apres `cmin`) n'ont
+  rien a faire dans l'historique, le workflow nightly le persiste deja via le
+  cache CI et remonte l'entree fautive en artefact sur crash.
+
+- Les dev-dependencies `pcap` et `pnet` (bindings natifs libpcap/Npcap) sont
+  retirees : le premier run Windows de la CI echouait au link (`wpcap.lib`,
+  `Packet.lib` introuvables sans SDK Npcap). Le test de balayage de
+  `s7comm_regression`, l'extraction de trames d'`icmp_golden` et l'exemple
+  `err_from_pcap` passent a `pcap-file` (Rust pur, deja utilise par
+  `scan_pcaps`), et le test unitaire Profinet construit son payload
+  directement. Oracles du balayage inchanges (58 fichiers, 2 893 trames) :
+  `pcap-file` se comporte a l'identique de libpcap sur le corpus. La suite de
+  tests n'a plus aucune dependance systeme.
+
+- Lints clippy `unwrap_used`, `expect_used` et `panic` actives sur le code de
+  production de la lib (bloquants en CI via `-D warnings`, tests exclus) :
+  un parseur d'octets hostiles ne doit jamais faire tomber son hote. Les six
+  sites existants sont tous justifies par un `#[expect]` motive (parse apres
+  validation ASCII, panics documentes de `hex_stream_to_bytes`, `fmt::Write`
+  infaillible sur `String`). `indexing_slicing` et `arithmetic_side_effects`
+  restent volontairement inactifs : plus de 1000 acces idiomatiques proteges
+  par des controles de longueur explicites et verifies par les 7 cibles de
+  fuzz. Decision prise en evaluant Semgrep : pour une crate Rust pure,
+  clippy + fuzzing + cargo-deny couvrent mieux le meme risque.
+
+### Ajoute
+
+- Decodage des **mPackets IEEE 802.3br** (Frame Preemption / IET,
+  `LINKTYPE_ETHERNET_MPACKET` = 274), issue #79. Nouveau
+  `LinkType::IEEE802_3BR` et nouveau decodeur `src/parse/link/ieee802_3br.rs`
+  branche dans `decoder_for` : le pipeline L3/L4/L7 est inchange, comme prevu
+  par l'architecture de sprint_02.
+
+  Un mPacket **express** (SMD-E) est une trame Ethernet complete enveloppee
+  d'un preambule, du SMD et d'un mCRC de queue : le decodeur retire
+  l'enveloppe et delegue au decodeur Ethernet existant, en zero-copy. Le
+  preambule est localise dynamiquement (7 octets 0x55, ou moins : la norme
+  autorise le PHY a le raccourcir, et le corpus contient des preambules de
+  6 octets — un offset fixe laissait 102 trames reelles en echec). La vue
+  `LinkLayer` conserve le LINKTYPE declare (274) tout en exposant
+  `as_ethernet()`, sur le modele de RAW/IPV4/IPV6.
+
+  Un mPacket **preemptible** (SMD-S/SMD-C) est refuse avec l'erreur nommee
+  `LinkLayerError::PreemptibleFragment` : son reassemblage est a etat, hors
+  de portee d'un parseur stateless — meme frontiere que le reassemblage TCP
+  et le QUIC Short Header. Nouvelles erreurs `InvalidPreamble` et
+  `InvalidSmd` pour les enveloppes malformees ; `LinkLayerError` etant
+  `#[non_exhaustive]`, l'ajout reste compatible en version mineure.
+
+  Resultat sur le corpus : les 10 667 trames LINKTYPE 274 de
+  `The-Ultimate-PCAP.pcapng` (21 % du fichier) sont decodees, `scan_pcaps`
+  ne remonte plus aucune erreur L2 sur ce LINKTYPE. Golden tests sur cinq
+  trames reelles du corpus (ICMP echo, neighbor solicitation ICMPv6, VRRP,
+  router advertisement sous 802.1Q, BFD/UDP a preambule court) ; la cible de
+  fuzz `parse_linktype` couvre le nouveau decodeur.
+
+### Corrige
+
+- README : le tableau des LINKTYPE supportes mentionne desormais IPV4 (228)
+  et IPV6 (229), ajoutes en 10.1.0 mais oublies du tableau, ainsi que le
+  nouveau 274.
+
+## [10.1.0] - 2026-08-16
+
+Version mineure, strictement additive : trois nouveaux decodeurs de protocole
+(SSH, ICMPv4, ICMPv6 avec la decouverte de voisins et de routeurs), deux
+nouveaux LINKTYPE (IPV4 et IPV6), et deux correctifs de validation.
+
+`cargo semver-checks check-release` contre `v10.0.0` : 223 controles, aucune
+rupture. La fenetre de stabilite ouverte par la 10.0.0 tient.
+
+Premiere release au packaging assaini : 172 fichiers publies contre 194 pour
+la 10.0.0, sans `.DS_Store`, `analyse.md`, `oui.csv` ni `docker-compose.yml`.
+
+**Changement de comportement a signaler.** Le correctif `require_version`
+n'est pas une rupture d'API, mais il resserre la detection HTTP : des payloads
+jusqu'ici classes HTTP ne le seront plus. C'est l'objectif, mais un
+consommateur qui compte des flux HTTP verra ses chiffres bouger.
+
+### Ajoute
+
+- Decodage **ICMPv4** (IP protocole 1, RFC 792). Le protocole etait reconnu au
+  transport depuis toujours mais jamais decode : `details` valait `None`. Les
+  messages Echo (request/reply) exposent identifiant, sequence et donnees ; les
+  messages d'erreur (destination unreachable, redirect, time exceeded,
+  parameter problem) exposent les 4 octets dependant du type et le datagramme
+  original cite par le routeur. Tout est zero-copy.
+
+  Nouveaux modules `src/errors/transport/icmp.rs`,
+  `src/checks/transport/icmp.rs` et `src/parse/transport/protocols/icmp.rs`,
+  plus un variant `TransportDetails::Icmp`. L'enum etait deja
+  `#[non_exhaustive]`, l'ajout reste donc compatible en version mineure.
+
+  ICMP est atteint par le numero de protocole IP, jamais par probing :
+  `Transport::payload` reste volontairement `None` pour qu'aucun octet ICMP ne
+  soit soumis a la detection applicative de
+  `parse_application_from_transport`, qui les etiquetterait a tort. Un message
+  illisible ne fait pas echouer le flux : seul `details` retombe a `None`.
+
+  Golden tests sur les captures reelles de `pcaps_exemple/protocols/icmp/`
+  (depot public de Chris Sanders) : echo request, echo reply et time exceeded,
+  au niveau parseur et au niveau `PacketFlow`.
+
+- Decodage **ICMPv6** (next header IPv6 58, RFC 4443 et RFC 4861), avec le
+  variant `TransportDetails::Icmpv6`. Couvre les Echo (128/129), les messages
+  d'erreur citant le paquet invoquant (1 a 4), et la decouverte de voisins :
+  Neighbor Solicitation (135) et Advertisement (136) exposent l'adresse cible
+  en `Ipv6Addr`, les flags Router/Solicited/Override, et les options NDP
+  brutes en zero-copy.
+
+  Parseur volontairement separe d'ICMPv4 : les deux partagent la forme de
+  l'en-tete mais leur numerotation de types est disjointe — 128 est un Echo
+  request en v6, tandis que le 8 d'ICMPv4 n'y est pas defini. Un test verrouille
+  ce point precis. Meme regle de detection et meme `payload: None` qu'en v4.
+
+- Capture `pcaps_exemple/protocols/icmp/icmp_destination_unreachable.pcapng`
+  et les golden tests correspondants, qui comblent les deux branches
+  « message d'erreur » que le corpus ne couvrait pas : Destination Unreachable
+  ICMPv4 (type 3 code 3) et la branche erreur ICMPv6 (type 1 code 4). Capture
+  provoquee en local sur `lo` par des envois UDP vers des ports fermes : elle
+  ne contient que du loopback, donc aucune donnee a anonymiser.
+
+- Detection et parsing **SSH** (RFC 4253 §4.2). Seule la chaine
+  d'identification est lisible sans etat — tout ce qui suit l'echange de
+  versions est chiffre — mais elle suffit a identifier le protocole et expose
+  la version du serveur, ce qui est l'essentiel en analyse securite.
+  `SshPacket` expose `protocol_version`, `software_version` et les
+  `comments` optionnels, tous zero-copy.
+
+  Detection par probing a l'aveugle dans `Application::try_from`, placee avant
+  HTTP. Ce qui rend le probing sur : le prefixe litteral `SSH-` suivi d'une
+  version de protocole valant exactement `2.0` ou `1.99`. Sans cette seconde
+  contrainte, n'importe quel texte commencant par `SSH-` serait etiquete SSH ;
+  un test d'oracle negatif le verrouille.
+
+  Deux ecarts a la RFC sont acceptes parce que les captures reelles les
+  contiennent : le CR avant le LF est optionnel, et `softwareversion` peut
+  porter un tiret que la norme interdit pourtant. Un parseur ecrit d'apres la
+  seule RFC rejetterait les bannieres Cisco et Raspbian du corpus.
+
+  Golden tests sur `pcaps_exemple/The-Ultimate-PCAP.pcapng` : bannieres
+  OpenSSH sur Ubuntu, Cisco et PuTTY, en Ethernet + VLAN + IPv6 + TCP. Le scan
+  des 75 captures du depot ne produit aucun label SSH parasite.
+
+- Decodage de la **decouverte de routeurs ICMPv6** (RFC 4861 §4.1 et §4.2) :
+  Router Solicitation (type 133) et Router Advertisement (type 134) quittent
+  `Icmpv6Body::Other` pour des variants dedies. La RA expose son hop limit
+  courant, les drapeaux Managed et Other, la duree de vie du routeur, le
+  reachable time et le retransmit timer ; les deux exposent leurs options NDP
+  brutes en zero-copy. Nouveau variant d'erreur `InvalidRouterLength`.
+
+  Golden tests sur `pcaps_exemple/The-Ultimate-PCAP.pcapng`, deja au depot :
+  trame 1600 (RS avec option Source Link-Layer Address), 1601 (RS nue, sans
+  option) et 1604 (RA, drapeau O pose, options Prefix Information et MTU). Les
+  valeurs attendues sont relues avec Tshark.
+
+- Capture `pcaps_exemple/protocols/icmp/icmp_mtu_exceeded.pcapng` et ses golden
+  tests. Elle couvre les deux seuls messages ou `rest_of_header` porte une
+  valeur non nulle — ICMPv4 fragmentation needed (type 3 code 4) et ICMPv6
+  packet too big (type 2), tous deux annoncant un MTU de 1280 — ainsi qu'une
+  Neighbor Advertisement avec le flag Router pose, absent du reste du corpus.
+  Obtenue via trois namespaces relies par des `veth` dont le lien de sortie est
+  a MTU reduit : adresses privees et namespaces ephemeres, aucune donnee
+  personnelle.
+
+- Support des link types LINKTYPE_IPV4 (228) et LINKTYPE_IPV6 (229) via les
+  nouvelles constantes `LinkType::IPV4` et `LinkType::IPV6`. Ces captures
+  commencent directement a l'en-tete IP, comme LINKTYPE_RAW, et reutilisent
+  donc `RawIpDecoder` qui lit la version au premier quartet. Avant ce
+  correctif, `decoder_for` ne connaissait que 1/101/113/276 et chaque trame
+  d'une telle capture echouait en L2 sans jamais atteindre les couches
+  superieures : les 17 trames de `pcaps_exemple/protocols/tls/tls12-dsb.pcapng`
+  sortent desormais 16 TLS + 1 Unknown au lieu de 17 erreurs L2.
+
+  `data_link.link_type()` rapporte le link type declare par la capture (228 ou
+  229) plutot que de tout normaliser en `RAW` : une capture 228 reste
+  distinguable d'une capture 101. Les erreurs L2 (`Truncated`,
+  `InvalidIpVersion`) citent egalement le link type reel.
+
+  L'oracle de couverture de `s7comm_regression` passe de 2 818 a 2 835 flux
+  analysables et de 59 a 42 erreurs L2 ; aucun faux positif S7Comm ou COTP
+  n'apparait.
+
+### Corrige
+
+- `SSH_MIN_LENGTH` valait 9 alors que la banniere la plus courte possible fait
+  dix octets : `SSH-` (4) + `2.0` (3) + `-` (1) + un octet de logiciel (1) +
+  LF (1). Un payload de neuf octets franchissait donc le pre-check de longueur
+  et n'etait rejete que plus loin, par `EmptySoftwareVersion` — un diagnostic
+  moins precis que ce que promet la structure du parseur.
+
+- `require_version` (HTTP) ne validait que le prefixe `HTTP/` : `HTTP/zzz`
+  etait accepte comme version valide, ce qui laissait du texte arbitraire etre
+  classe comme ligne de requete HTTP. La forme est desormais verifiee en
+  entier — un chiffre, eventuellement suivi d'un point et d'un second chiffre.
+  `HTTP/1.0`, `HTTP/1.1`, `HTTP/2` et `HTTP/3` restent acceptes ; `HTTP/11`,
+  `HTTP/1.`, `HTTP/1.1.1` et `HTTP/zzz` sont rejetes (issue #47).
+
+### Interne
+
+- `examples/scan_pcaps.rs` lit desormais les captures avec `pcap-file` au lieu
+  de libpcap, et resout le LINKTYPE **par paquet** au lieu d'appeler
+  `get_datalink()` une seule fois par fichier.
+
+  Un pcapng peut decrire plusieurs interfaces, chacune avec son LINKTYPE, et
+  chaque paquet designe la sienne par `interface_id`. L'ancienne boucle
+  appliquait le LINKTYPE de la premiere interface a tout le fichier et sortait
+  sur le premier `Err`, si bien que la capture s'arretait au premier changement
+  d'encapsulation — silencieusement, en affichant zero trame.
+
+  Trois fichiers du corpus etaient concernes, pas un seul :
+  `The-Ultimate-PCAP.pcapng` (0 -> **51 328** trames), `capwap-only.pcapng`
+  (0 -> 2) et `capwap-association-valid.pcapng` (0 -> 2). Les trois comptes
+  correspondent exactement a ceux de tshark. Aucun autre fichier du corpus ne
+  change de compte (issue #74).
+
+  Une lecture interrompue par une erreur est desormais distinguee d'une fin de
+  fichier et signalee, fichier par fichier puis en recapitulatif : un total de
+  corpus bati sur des lectures amputees ne se presente plus comme complet.
+
+  Le chemin pcap classique utilise `next_raw_packet` : `next_packet` rejette
+  `orig_len > snap_len` comme invalide, ce qui est plus strict que libpcap et
+  que la realite d'une trame tronquee a la capture — cette validation faisait
+  tomber une capture de 3 584 trames a 4.
+
+- Les erreurs de couche liaison rapportees par `scan_pcaps` portent leur
+  LINKTYPE. Sur `The-Ultimate-PCAP.pcapng`, cela montre que les 10 667 echecs
+  proviennent tous du LINKTYPE 274 — **IEEE 802.3br mPackets**, le seul des
+  quatre encapsulations du fichier qui n'ait pas de decodeur. Les trois autres
+  (Ethernet 39 557, Linux SLL v1 1 067, Raw IP 37) sont decodees.
+
+- `Cargo.toml` passe d'une liste `exclude` a une liste `include`, fail-closed
+  par construction. Chaque release crates.io embarquait jusqu'ici cinq
+  `.DS_Store`, `.codex`, `analyse.md`, `sprint_0{1,2}.md`, `oui.csv`,
+  `article/`, `dashboards/`, `docker-compose.yml` et `deny.toml` : 194 fichiers
+  publies contre 176 desormais. Les motifs suivent la semantique gitignore,
+  d'ou le `/` initial sur les fichiers de racine — sans lui, `README.md`
+  attrapait aussi `pcaps_exemple/README.md` (issue #30).
+
+- Les cinq `.DS_Store` sortent du suivi git et rejoignent `.gitignore`.
+
+- La dev-dependency `criterion` est retiree : aucun dossier `benches/`, aucun
+  `use criterion` dans le depot.
+
+- Premiers tests du module `src/parse/tunnel/` (issue #23), sur la trame reelle
+  de `pcaps_exemple/capwap-only.pcap`. Un balayage de mutations documente ce
+  qu'ils verrouillent reellement : les deux gardes LLC/SNAP. Voir « Connu ».
+
+- Test de propriete figeant l'inaccessibilite de `QuicPacketType::Unknown` sur
+  les 256 premiers octets possibles, prealable a sa suppression (issue #48).
+
+### Connu
+
+- La detection SSH porte sur les trames de banniere uniquement. Sur les 542
+  trames qu'un dissecteur a etat etiquette SSH dans `The-Ultimate-PCAP`, un
+  parseur stateless en identifie huit ; le reste est du materiel de cle puis
+  du chiffre, indistinguable du bruit sans suivi de session.
+- ICMP et ICMPv6 decodent tout ce que le corpus contient, mais deux familles
+  restent sans trame reelle : les Router Solicitation/Advertisement etaient
+  couvertes, les messages ICMPv6 de type 3 et 4 ne le sont pas.
+- Ajouter SSH porte a dix-sept le nombre de parseurs enchaines par
+  `Application::try_from`, ce qui aggrave marginalement l'issue #20. Son
+  controle est toutefois parmi les moins couteux de la cascade : un prefixe
+  litteral de quatre octets rejette immediatement tout ce qui n'est pas du
+  SSH, sans allocation.
+- Le depeautage CAPWAP n'a aucune couverture reelle de son chemin nominal. Le
+  corpus ne contient pas une seule trame CAPWAP-Data portant du 802.11 **data**
+  avec LLC/SNAP : `pcaps_exemple/capwap-*.pcap*` ne contient que du management,
+  et les six dossiers de `pcaps_exemple/tunnels/` sont vides. Un balayage de
+  mutations le confirme — neutraliser la garde DTLS, la garde HLEN, le controle
+  de type 802.11 ou `MAX_TUNNEL_DEPTH` laisse la suite entierement verte, car
+  tout chemin s'arrete au LLC/SNAP avant de les atteindre. Couvrir ces quatre
+  gardes, `MAX_TUNNEL_DEPTH` en tete, demande d'acquerir une capture
+  CAPWAP-Data (issue #23).
+
+## [10.0.0] - 2026-08-04
+
+Version majeure : decodage COTP complet et validation stricte de l'enveloppe
+S7Comm (verifies contre 10 310 PDU reels et un oracle negatif de 2 818
+trames), detection S7Comm par contenu sur tout port TCP, et nettoyage de
+l'API morte accumulee (issues #39 a #45).
+
+### Rupture
+
+- Toutes les structures S7Comm publiques et `S7CommParseError` deviennent
+  `#[non_exhaustive]`. `S7Parameter` expose desormais `item_count` et la
+  section `raw` zero-copy ; `S7AnyParameterTooShort` est remplace par
+  `InvalidS7AnyLength`. Le rendu `Display` de `S7CommPacket` est egalement
+  precise.
+- `CotpPduType`, `CotpParameter`, `CotpHeader` et `CotpParseError` deviennent
+  `#[non_exhaustive]`. Les nouveaux TPDU ED, EA, AK et RJ, les formats de
+  numerotation, six champs d'en-tete et six variantes de parametre etendent
+  l'API publique ; la classification des codes portant un credit change.
+- La constante publique `COTP_MIN_LENGTH` passe de 3 a 2 : deux octets
+  suffisent pour lire LI et le code TPDU, chaque disposition connue imposant
+  ensuite sa propre taille fixe.
+- Nettoyage de l'API morte et des variants fourre-tout (issues #39 a #45) :
+  suppression des variants jamais construits `HttpParseError::MissingRequestLine`
+  (et de `require_request_line`), `MqttError::UnsupportedPacketType`,
+  `Dhcpv6PacketParseError::TransactionId` et de la constante
+  `CotpHeader::MIN_SIZE` ; le champ `SrvlocHeaderV1::scope_list_lengh` devient
+  `scope_list_length` ; `SnmpError::InvalidPduStructure` est scinde en
+  `NonEmptyNull`/`NonEmptyException` et `MqttError::InvalidTopic` en
+  `EmptyTopic`/`TopicNotUtf8`/`ControlCharacterInTopic`/`WildcardInPublishTopic`.
+
+### Ajoute
+
+- Tests de regression issus de six captures S7Comm : 10 310 PDU S7Comm et
+  168 PDU COTP verifies par numeros de trame et empreintes deterministes, dont
+  Read/Write Var, Setup Communication, Userdata et
+  les echanges COTP CR/CC.
+- Oracle negatif sur 2 818 trames d'autres protocoles, qui exige zero label
+  S7Comm ou COTP parasite.
+- Cibles de fuzz dediees S7Comm et COTP, avec graines structurees pour les
+  differents TPDU et invariants de transport S7Comm/COTP dans le fuzz du
+  parseur de flux.
+- Decodage COTP des formats normal, etendu et classe 0/1, avec donnees
+  utilisateur zero-copy, credit, raison de deconnexion, cause de rejet,
+  checksums ISO/ATN et informations additionnelles.
+
+### Corrige
+
+- Validation stricte des enveloppes TPKT, COTP-DT et S7 : octets reserves,
+  longueurs et frontiere du premier TPKT, LI/type/EOT COTP, identifiant,
+  ROSCTR et champ reserve S7, ainsi que les deux octets d'erreur des ACK.
+- Les reponses ACK-Data Read/Write ne sont plus interpretees comme des listes
+  de descripteurs S7ANY ; leurs valeurs restent dans la section data brute.
+- Les parametres Setup Communication, Userdata et les syntaxes inconnues sont
+  preserves sans perte, avec gestion du remplissage entre items et longueur
+  S7ANY exacte.
+- `PacketFlow` reconnait S7Comm uniquement sur TCP, y compris hors port 102
+  lorsque toute la signature est valide, et decode TPKT avant COTP sur le
+  port 102.
+- Le DT COTP normal `02 f0 xx` est decode sans prendre le debut de ses donnees
+  utilisateur pour des parametres TLV. Les parties fixes de CR, CC, DR, DC,
+  DT, ED, AK, EA, RJ et ER, leurs longueurs, references, numeros, credits,
+  options et listes de parametres sont maintenant controles selon leur propre
+  disposition wire, y compris les PDU de controle concatenes.
+- Le parseur COTP generique conserve les codes TPDU inconnus sans les utiliser
+  comme empreinte ; la detection `PacketFlow` exige TCP/102, TPKT et une
+  disposition COTP connue et complete.
+- Mise a jour de `anyhow` dans l'outil d'ingestion afin de supprimer l'avis
+  RustSec visant la version precedente.
+
+## [9.0.0] - 2026-08-03
+
+Version majeure : correction du decodage S7Comm et ajout des parseurs FTP,
+SMTP, NNTP et mDNS, avec une detection applicative durcie contre les faux
+positifs.
+
+### Rupture
+
+- `S7ParameterItem` gagne le champ public `count`. Les constructions par
+  litteral doivent maintenant le renseigner.
+- Les champs d'adressage S7ANY ne sont exposes que pour le syntax id `0x10` ;
+  les autres syntaxes conservent uniquement leurs octets bruts.
+
+### Ajoute
+
+- Parseurs zero-copy detailles pour FTP, SMTP et NNTP, avec validation des
+  commandes, reponses et fins de ligne.
+- Support mDNS distinct du DNS classique, notamment pour les annonces sans
+  question, le bit QU et le bit cache-flush.
+- Golden tests issus de captures reelles pour FTP, SMTP, NNTP et mDNS.
+- Oracle de fuzz : tout flux etiquete FTP doit obligatoirement etre transporte
+  par TCP avec le port source ou destination 21.
+
+### Corrige
+
+- Les offsets de `count`, `db_number`, `area` et `address` des items S7ANY,
+  ainsi que le decodage variable des en-tetes COTP DT/CR/CC.
+- Les payloads FTP hors TCP/21 ne sont plus etiquetes FTP : des commandes
+  comme `PASV` ou `PORT` peuvent apparaitre dans le corps d'un message SMTP ou
+  d'un article NNTP sans etre du FTP.
+- Le formatage COTP ne peut plus paniquer sur une valeur TPDU size hostile.
+- Mise a jour de `tokio-postgres` dans l'outil d'ingestion afin d'eliminer les
+  avis RustSec bloquants de son graphe de dependances.
+
+### Interne
+
+- Les parseurs applicatifs suivent desormais la meme sequence canonique de
+  checks et d'extraction que le parseur NTP, sans changement de comportement
+  attendu hors corrections documentees.
+
+## [8.1.0] - 2026-07-14
+
+Reconstruction owned SLL/SLL2 hors parseur, pour les consommateurs qui
+rebatissent une couche liaison depuis des champs serialises (ex. reimport
+d'une matrice de flux SONAR, issue Sonar#150).
+
+### Ajoute
+
+- `LinuxSllLinkOwned::new` et `LinuxSll2LinkOwned::new` : constructeurs
+  publics des metadonnees cooked owned (les structs restent
+  `#[non_exhaustive]`, le constructeur est le chemin supporte).
+- `LinkLayerOwned::linux_sll` et `LinkLayerOwned::linux_sll2` deviennent
+  publics : le protocole reseau est derive du champ `protocol` cooked, avec
+  la meme derivation que le decodeur live — une couche rebatie est egale
+  (Eq/Hash) a celle produite par le parseur, tests d'aller-retour a l'appui.
+
+## [8.0.0] - 2026-07-14
+
+Version majeure : exposition des en-tetes parses complets via `details` et
+champs DSCP/ECN types.
+
+### Rupture
+
+- `Ipv4Packet::dscp()` et `Ipv4Packet::ecn()` retournent desormais les types
+  [`Dscp`] et [`Ecn`] (RFC 2474 / RFC 3168) au lieu de `u8` bruts. La valeur
+  numerique reste accessible et `Display` affiche le nom IANA (CS0-CS7,
+  AF11-AF43, EF, VA, LE) quand il existe.
+- `Internet` et `Transport` gagnent un champ public `details` : les
+  constructions par litteral doivent l'initialiser. Le champ est ignore par
+  `PartialEq`/`Hash` et absent de la serialisation JSON : l'identite des
+  couches reste definie par les champs aplatis.
+
+### Ajoute
+
+- `InternetDetails` (`Ipv4`/`Ipv6`/`Arp`) et `TransportDetails` (`Tcp`/`Udp`),
+  enums `#[non_exhaustive]` portes par `Internet.details` et
+  `Transport.details` : les consommateurs accedent aux en-tetes parses
+  complets (TTL, flags, options, operation ARP...) sans re-parser le payload.
+- Module `dscp_ecn` partage IPv4/IPv6 avec les types `Dscp` et `Ecn`,
+  reexportes a la racine de la crate.
+- `Ipv6Packet::dscp()` et `Ipv6Packet::ecn()` decodent le champ DS du
+  Traffic Class avec les memes types que l'IPv4.
+- `Ipv4Packet`, `Ipv6Packet`, `TcpPacket` et `UdpPacket` derivent `Clone`.
+
+### Modifie
+
+- Les fixtures TLS 1.3 des tests proviennent maintenant de trames reelles de
+  `pcaps_exemple/protocols/tls/tls1.3.pcapng` (session openssl s_client /
+  s_server sur loopback), couvrant ClientHello, ServerHello multi-records,
+  fin de handshake et Application Data.
+- `perf_by_version.json` regenere avec la mesure de la 8.0.0.
+
+## [7.0.0] - 2026-07-13
+
+Version majeure : dispatch multi-LINKTYPE. Les decodeurs RAW, Linux SLL v1 et
+Linux SLL2 sont maintenant disponibles, avec le nouveau contrat d'erreur
+`ParseError` et les cibles fuzz du sprint.
+
+### Rupture
+
+- L'erreur de parsing principale est renommee `ParseError` et devient
+  `#[non_exhaustive]`. `ParsedPacketError` reste un alias de compatibilite, mais
+  les `match` exhaustifs existants doivent ajouter un cas generique. Ce
+  changement est reserve a la version majeure 7.0.0.
+- `PacketFlow::data_link` devient `LinkLayer` et
+  `PacketFlowOwned::data_link` devient `LinkLayerOwned`. Les acces directs
+  Ethernet (`flow.data_link.ethertype`, MAC, VLAN) migrent vers
+  `flow.data_link.as_ethernet()` ou les accesseurs communs. Les constructions
+  par litteral doivent utiliser `LinkLayer::ethernet` / `From<DataLink>`.
+- Le JSON de la liaison n'est plus aplati a la racine : `data_link` contient
+  `link_type`, `network_protocol`, `link_kind` et `link_details`. Le modele
+  emprunte et son miroir owned produisent la meme forme.
+- `DataLinkOwned` conserve des `MacAddress` et un `Ethertype` types au lieu de
+  chaines. Leur representation JSON lisible reste une chaine.
+- Les flux internes CAPWAP ne sont plus presentes comme un faux Ethernet : ils
+  utilisent le variant IEEE 802.11 natif et le LINKTYPE 105.
+
+### Ajoute
+
+- `LinkType(u32)`, identifiant ouvert dans l'espace canonique `LINKTYPE_*`, avec
+  constantes Ethernet (1), RAW (101), Linux SLL (113), Bluetooth H4 avec
+  pseudo-en-tete (201) et Linux SLL2 (276). Les valeurs inconnues et leur
+  serialisation numerique sont preservees.
+- Entrees `parse(LinkType, &[u8])`, `is_supported(LinkType)` et, avec la feature
+  `parse_timing`, `parse_timed(...)`. Un LINKTYPE sans decodeur retourne
+  `ParseError::UnsupportedLinkType` avant toute interpretation des octets.
+- Catalogue interne de decodeurs avec une source unique pour le preflight et
+  les chemins normal/instrumente. Ethernet est le seul decodeur actif dans ce
+  premier jalon ; `PacketFlow::try_from` et `try_from_timed` restent ses
+  raccourcis de compatibilite.
+- `LinkLayer`, `LinkLayerKind`, `NetworkProtocol` et leurs miroirs owned. Le
+  payload L3 reste zero-copy et est exclu de `Eq`, `Hash` et de la
+  serialisation ; les protocoles inconnus conservent leur valeur numerique.
+- Sortie interne `DecodedLink` commune aux decodeurs. Le pipeline L3/L4/L7
+  recoit desormais un protocole reseau et un payload independants d'Ethernet ;
+  les chemins normal et instrumente appellent le meme decodeur.
+- Modele `Ieee80211Link` pour les trames decapsulees de CAPWAP, avec adresses
+  ToDS/FromDS effectives et vrai protocole LLC/SNAP.
+- Decodeur `LINKTYPE_RAW` (101) : le nibble de version selectionne IPv4 ou IPv6
+  et le paquet complet est transmis zero-copy au pipeline commun, sans MAC ni
+  EtherType invente. Un header IP reconnu mais invalide reste une corruption
+  L3 non fatale.
+- `RawIpLink` / `RawIpLinkOwned` exposent la version IP et partagent le meme
+  schema JSON. `LinkLayerError` conserve le LINKTYPE, les tailles de troncature
+  et les versions IP invalides pour la comptabilite des echecs de liaison.
+- Decodeur `LINKTYPE_LINUX_SLL` (113) : l'en-tete cooked v1 de 16 octets est
+  decode en ordre reseau et son payload est transmis zero-copy au pipeline
+  commun. Les types de paquet, ARPHRD, longueurs d'adresse et protocoles
+  inconnus restent comptables sans etre convertis en faux Ethernet.
+- `LinuxSllLink` / `LinuxSllLinkOwned`, `LinuxCookedPacketType` et
+  `LinuxArphrdType` conservent les metadonnees SLL. Une longueur d'adresse
+  superieure au slot wire de huit octets est preservee avec une vue bornee et
+  un indicateur de troncature, conformement au comportement de Tshark.
+- Decodeur `LINKTYPE_LINUX_SLL2` (276) distinct : son en-tete cooked de 20
+  octets preserve le protocole, le champ reserve MBZ, l'index d'interface,
+  l'ARPHRD, le type de paquet, la longueur declaree et l'adresse disponible.
+- `LinuxSll2Link` / `LinuxSll2LinkOwned` conservent les valeurs futures et
+  exposent `reserved_is_zero()` sans rendre fatale une valeur reservee non
+  nulle que Tshark sait encore dissecter. L'index reste numerique et n'est pas
+  resolu contre les interfaces de la machine d'analyse.
+- Tests publics de conservation des identifiants, refus ferme des LINKTYPE non
+  supportes, equivalence Ethernet IPv4/IPv6/VLAN/corruptions, erreurs Ethernet
+  et VLAN tronquees, parite du dispatch instrumente, schema borrowed/owned et
+  identite de flux independante des octets de payload.
+- Tests RAW issus d'un paquet IPv4/ICMP de la fixture Sonar et d'un vecteur
+  IPv6/UDP, avec parite normale/instrumentee, zero-copy, erreurs structurees et
+  degradation L3 pour chaque longueur inferieure aux headers IP minimaux.
+- Tests SLL issus d'un paquet IPv4/TCP loopback de la fixture Sonar et de
+  vecteurs IPv6/ARP anonymises : endianness, zero-copy, valeurs futures,
+  adresses absentes ou bornees, padding, schema borrowed/owned, erreurs L2 et
+  degradation L3 exhaustive sous les tailles minimales IPv4/IPv6/ARP.
+- Tests SLL2 fondes sur un vecteur IPv4 anonymise valide avec Tshark et des
+  vecteurs IPv6/ARP/inconnu synthetiques : offsets, endianness, index
+  d'interface, reserved MBZ nul ou non nul, valeurs futures, zero-copy, schema,
+  troncatures L2/L3 et parite normale/instrumentee.
+
+### Documentation
+
+- Distinction entre les `LINKTYPE_*` de fichiers et les `DLT_*` de captures
+  live, responsabilite de normalisation du lecteur, octets attendus par paquet
+  et matrice de support courante documentes dans les deux README.
+
+## [6.0.0] - 2026-07-12
+
+Durcissement de la detection MQTT : sur le corpus de pcaps du depot, un
+tiers des etiquettes MQTT etaient des faux positifs (payloads binaires
+quelconques dont le premier octet mimait un fixed header).
+
+### Rupture
+
+- `MqttPacket::try_from` valide strictement MQTT 3.1/3.1.1 (avec tolerance
+  v5) : nom de protocole `MQTT`/`MQIsdp` et niveau coherent exiges dans le
+  CONNECT (bit reserve des connect flags controle), remaining length par
+  type (acks == 2 ou forme v5 valide, PING/DISCONNECT vides ou reason code
+  v5), packet id non nul, codes CONNACK/SUBACK/UNSUBACK verifies, QoS 3
+  rejete, topic de PUBLISH UTF-8 non vide sans wildcard ni caractere de
+  controle, payload de SUBSCRIBE/UNSUBSCRIBE decoupe en entrees exactes.
+- `MqttPacket::try_from` exige que le buffer entier soit une suite de
+  paquets MQTT valides : les segments TCP coalesces (plusieurs messages)
+  restent acceptes, les octets residuels non-MQTT sont rejetes.
+- PUBLISH QoS > 0 : le packet id fait desormais partie du
+  `variable_header` (conformite spec) et non plus du `payload`.
+- CONNECT v3.1 `MQIsdp` : variable header de 12 octets (il etait fige a
+  10, faux pour ce nom de protocole).
+- `MqttError` gagne neuf variantes (`InvalidProtocolName`,
+  `InvalidProtocolLevel`, `InvalidReservedConnectFlag`, `InvalidQos`,
+  `ZeroPacketId`, `InvalidRemainingLength`, `InvalidReasonCode`,
+  `InvalidTopic`, `MalformedSubscriptionPayload`) : les `match` exhaustifs
+  doivent etre completes.
+- `checks::application::mqtt::variable_header_len` prend le premier octet
+  du fixed header en plus : `(packet_type, first_byte, body)`.
+
+### Corrige
+
+- Detection MQTT : 0 faux positif sur le corpus de pcaps (20 avant), les
+  38 trames MQTT reelles restent detectees, aucun effet sur les autres
+  protocoles.
+
+### Ajoute
+
+- Exemple `scan_pcaps` : compte les protocoles applicatifs detectes par
+  fichier pcap/pcapng (`cargo run --example scan_pcaps -- <dossier>
+  [--focus PROTO]`), utile pour auditer les faux positifs.
+- Golden tests sur trames reelles : session MQTT v3.1 complete (CONNECT,
+  CONNACK, SUBSCRIBE, PUBLISH, PINGREQ) et quatre trames sosies qui
+  produisaient les faux positifs.
+- Captures de reference : `pcaps_exemple/protocols/mqtt/` (session Paho
+  vers m2m.eclipse.org:1883) et dossiers arp/dhcp/dns/icmp/ip/tcp/
+  ieee80211 issus du depot de Chris Sanders (citation dans les
+  `SOURCE.md`).
+- Le paquet crates.io exclut desormais `pcaps_exemple/` et
+  `integration_test/` (2,8 Mo de captures hors tarball).
+
+## [5.0.0] - 2026-07-11
+
+Corrections issues de l'audit `analyse.md` : semantique de parsing, chaine de
+publication et completude protocolaire.
+
+### Rupture
+
+- La couche L3 est desormais routee par l'EtherType via
+  `Internet::try_from_parts(ethertype, payload)` : un EtherType inconnu donne
+  `internet: None` comme avant, mais un paquet **corrompu** sous un EtherType
+  connu (IPv4/IPv6/ARP/Profinet) n'est plus avale silencieusement.
+  `Internet::try_from(&[u8])` (probing sans EtherType) reste disponible.
+- Degradation gracieuse sur couche corrompue : `PacketFlow` gagne un champ
+  `corrupted: Option<CorruptedLayer>` (`layer: Internet | Transport`,
+  `error: String`). Quand une couche reconnue (par l'EtherType ou le champ
+  protocole IP) contient des octets invalides, les couches au-dessus restent
+  remplies, la couche fautive et celles du dessous valent `None`, et la
+  corruption est rapportee — `try_from` n'echoue plus que si le L2 lui-meme
+  est illisible. Meme champ sur `PacketFlowOwned`. (Auparavant, un L4
+  corrompu faisait echouer tout le parsing.)
+- `Ipv6Packet` : les extension headers (Hop-by-Hop, Routing, Fragment, AH,
+  Destination Options) sont maintenant parcourus. `extension_headers` contient
+  les vrais octets de la chaine (plus jamais `&[0]`), `payload` pointe apres
+  les extensions, et les nouveaux champs `transport_protocol` /
+  `is_fragmented()` exposent le protocole L4 final (aucun L4 n'est parse pour
+  les fragments, comme en IPv4).
+- `PacketFlowOwned` gagne un champ `inner: Option<Box<PacketFlowOwned>>` :
+  `to_owned()` preserve desormais les tunnels (CAPWAP…) au lieu de les perdre,
+  et la conversion se fait depuis `&PacketFlow` sans clone intermediaire.
+- `MacAddress::try_from(String)` retourne `MacParseError::InvalidComponent`
+  sur un composant hexadecimal invalide au lieu de paniquer.
+- HTTP : la methode doit etre une methode standard (RFC 9110) et la version
+  doit commencer par `HTTP/` (`InvalidMethod`, `InvalidVersion`), sinon des
+  payloads texte quelconques etaient classes HTTP.
+- DNS : les messages annoncant des records absents ou utilisant des pointeurs
+  de compression invalides (boucle, reference avant) sont maintenant rejetes
+  (`InvalidCompressionPointer`, `ReservedLabelType`).
+
+### Ajoute
+
+- DNS complet : les sections answers, authorities et additionals sont parsees
+  (elles restaient toujours `None`), avec support de la compression de noms
+  RFC 1035 §4.1.4 bornee contre les boucles de pointeurs hostiles.
+- Detection L7 : HTTP et MQTT rejoignent le dispatcher applicatif ; DHCPv6,
+  COTP (ISO-TSAP 102) et AMS/ADS (48898/48899) sont detectes sur leurs ports
+  standards (signatures trop faibles pour du probing a l'aveugle).
+- `checks::checksum` : validation **opt-in** des checksums IPv4, TCP et UDP
+  (`verify_ipv4_header_checksum`, `verify_tcp_checksum`,
+  `verify_udp_checksum`) — le parsing ne valide toujours rien par defaut a
+  cause de l'offload materiel.
+- `convert::try_hex_stream_to_bytes` : variante sans panic de
+  `hex_stream_to_bytes` (`HexStreamError`).
+- Le module `errors` est public : les erreurs par couche
+  (`errors::internet::InternetError`, etc.) sont nommables par les
+  consommateurs ; `InternetError` gagne les variantes `Ipv4Error`, `Ipv6Error`
+  et `ProfinetError`.
+- Fuzzing : cible cargo-fuzz `fuzz/` avec trois harnais (`parse_packetflow`,
+  `parse_dns`, `parse_application`).
+
+### Corrige
+
+- `PacketFlow::try_from_timed` retourne exactement le meme resultat que le
+  parsing normal, tunnels inclus (il forcait `inner: None`) ; les deux chemins
+  partagent les memes fonctions de couche.
+- Publication crates.io : plus de double declenchement CI→Coverage, garde
+  `conclusion == success` sur Coverage, et publication uniquement sur tag
+  `vX.Y.Z` (avec verification tag/version) ou dispatch manuel.
+- Ingestor : l'offset JSONL n'est valide qu'apres insertion PostgreSQL
+  reussie ; plus aucune mesure perdue quand PostgreSQL est indisponible.
+- `benchmark_db` : le repertoire des PCAP se passe en argument CLI ou via
+  `PCAP_DIR` (plus de chemin absolu code en dur).
+- README/README-fr : version d'installation corrigee (`4.0.0`).
+- Documentation : la promesse « allocation-free » est precisee (zero-copy
+  L2/L3/L4 ; DNS, HTTP, SNMP et les tunnels allouent), et le contrat
+  d'egalite/hash (identite de flux, payloads ignores) est documente.
+
+## [4.0.0] - 2026-07-09
+
+Sprint 01 : mise en conformite complete avec `METHODE_AJOUT_PROTOCOLE.md`
+(zero-copy, erreurs typees, validations dans `src/checks`).
+
+### Rupture
+
+- Migration zero-copy des parseurs qui copiaient encore des octets du paquet :
+  les structures suivantes gagnent un lifetime et empruntent leurs champs au
+  paquet source (`&'a [u8]` / `&'a str`) au lieu de posseder `Vec<u8>`/`String` :
+  `HttpRequest<'a>`, `GiopPacket<'a>` (et `GiopRequest`, `ServiceContext`,
+  `TargetAddress`), `QuicPacket<'a>` (et `ConnectionId`, `CryptoFrame`,
+  `QuicFrame`, `QuicPayload`), `SrvlocPacket<'a>`, `BitcoinPacket<'a>`,
+  `MqttPacket<'a>`, `CotpHeader<'a>` (et `CotpParameter`), `DhcpPacket<'a>`.
+- `NtpPacket` : `Refid::KissCode` et `Refid::ClockSource` passent de `String`
+  a `[u8; 4]` (avec accesseur `Refid::code()` et `Display`).
+- `BitcoinError` et `MqttError` migrent vers `thiserror` (messages identiques).
+- GIOP : variante stringly `GiopError::Other` supprimee au profit de variantes
+  typees (`UnknownTargetDiscriminator`, `InvalidServiceContextCount`).
+- Noms de protocoles corriges dans la detection applicative : `"SRVLOCK"`
+  devient `"SRVLOC"` et `"QUIQ"` devient `"QUIC"` (tout consommateur qui
+  matche sur ces chaines doit se mettre a jour).
+- SRVLOC : la longueur declaree dans l'en-tete doit desormais correspondre
+  exactement a la taille du payload, et le code fonction doit exister pour la
+  version (RFC 2165 / RFC 2608).
+- DHCP : une zone options non vide doit commencer par le magic cookie
+  RFC 2131 (`0x63825363`) ; les options vides (BOOTP pur) restent acceptees.
+
+### Ajoute
+
+- Erreur dediee `QuicError` dans `src/errors/application/quic.rs` (remplace
+  l'erreur applicative generique dans le parseur QUIC).
+- Validations extraites des parseurs vers `src/checks` pour GIOP, QUIC
+  (curseur borne + varint RFC 9000), TLS (boucle de records), OPC UA (taille
+  de chunk), COTP (regles TPDU/TSAP) et S7Comm (bornes parametres/items).
+- Environ 130 tests supplementaires : tests unitaires directs des checks,
+  tests de bornes (longueurs declarees, offsets, payloads tronques) et tests
+  de provenance de pointeur garantissant le zero-copy (598 tests au total).
+- En-tete de licence MIT ajoute aux 14 fichiers qui ne l'avaient pas.
+
+### Corrige
+
+- Issue #3 : les paquets DHCP ne sont plus classifies `SRVLOCK`. DHCP est
+  ajoute a la chaine de detection applicative (avant SRVLOC), et le parseur
+  SRVLOC durci rejette les payloads BOOTP dont l'op code mimait une version
+  SLP. Non-regression verifiee avec les trames reelles de `dhcp.pcap`.
+- GIOP : un compteur de service contexts forge ne peut plus declencher une
+  allocation demesuree (validation avant `Vec::with_capacity`).
+- MQTT : un varint de longueur restante tronque renvoie desormais
+  `MalformedRemainingLength` au lieu de `RemainingLengthOverflow`.
+- NTP : suppression des `unwrap()` du chemin de parsing et gardes de longueur
+  sur root delay / root dispersion.
+- La reconstruction des noms DNS (labels + compression RFC 1035) reste la
+  seule allocation du chemin de parsing, documentee comme justifiee par le
+  protocole.
+
+## [3.0.0] - 2026-07-07
+
+### Ajoute
+
+- Decapsulation recursive des tunnels : un paquet encapsule produit desormais
+  plusieurs niveaux de flux via le nouveau champ `PacketFlow.inner`
+  (`Option<Box<PacketFlow>>`) et la methode `PacketFlow::flatten()`.
+- Support **CAPWAP-Data** (UDP 5247) transportant **IEEE 802.11** (ToDS/FromDS,
+  WDS, QoS, gestion du byte-swap Frame Control des captures Cisco) puis
+  **LLC/SNAP** jusqu'a la couche L3 interne.
+- Le tunnel detecte est reporte comme protocole applicatif de la ligne externe
+  (ex. `"CAPWAP"`).
+- Garde-fou de profondeur (`MAX_TUNNEL_DEPTH = 4`) et degradation gracieuse :
+  un contenu interne illisible (DTLS chiffre, tronque, non-SNAP) ne fait jamais
+  echouer le parsing, seule la ligne externe est produite.
+- Deux tests de reference sur trames reelles (CAPWAP ToDS/en-tete 16 octets et
+  FromDS/en-tete 8 octets).
+
+### Rupture
+
+- `PacketFlow` gagne un champ public `inner` : toute construction par litteral
+  de `PacketFlow` doit desormais renseigner ce champ (`inner: None` par defaut).
+
+### Validation
+
+- `cargo test` passe (435 tests unitaires + 13 doctests), `cargo fmt` et
+  `cargo clippy` propres.
+
+## [1.5.5] - 2026-06-29
+
+### Change
+
+- Detection PostgreSQL basee sur la structure du payload TCP au lieu du port 5432.
+- Alignement du parseur PostgreSQL sur les formats de messages frontend/backend pour les StartupMessage 3.0/3.2 et les CancelRequest a cle secrete variable.
+
+### Corrige
+
+- Reduction des faux positifs PostgreSQL en exigeant une signature applicative forte avant de labelliser le payload.
+
+### Validation
+
+- `cargo test` passe avec 297 tests unitaires et 13 doctests.
+
+## [1.5.4] - 2026-06-26
+
+### Ajoute
+
+- Ajout du parsing PostgreSQL, detecte sur le port standard et expose via les couches application, erreurs et validations dediees.
+
+### Change
+
+- Le pipeline benchmark/ingestion/dashboard identifie maintenant le code de la crate avec une empreinte BLAKE3 de `src/` (`crate_code`) au lieu d'un numero de version hardcode.
+- Les fichiers JSONL de benchmark incluent `crate_code` et sont nommes par PCAP, code de crate et `run_id`, pour que l'ingestor voie immediatement chaque nouveau run.
+
+### Validation
+
+- `cargo test` passe avec 283 tests unitaires et 13 doctests.
+
+## [1.5.3] - 2026-06-25
+
+### Corrige
+
+- `ParseTiming.total_ns` est maintenant renseigne pour toute tentative de parsing, y compris quand le parsing echoue en L2, L3 ou L4.
+- Les paquets IPv4 fragmentes ne declenchent plus de tentative de parsing L4; la couche internet est conservee avec `payload_protocol: None`.
+- Le parsing L4 sur fragment IPv4 necessite un reassemblage IP, non fourni par la crate.
+
+### Validation
+
+- `cargo test` passe avec 278 tests unitaires et 13 doctests.
+- `cargo test --features parse_timing` passe avec 286 tests unitaires et 13 doctests.
+
+## [1.5.2] - 2026-06-25
+
+### Corrige
+
+- `ParseTiming.total_ns` mesure maintenant toute tentative de parsing, y compris quand le parsing echoue en L2, L3 ou L4.
+- Les fragments IPv4 non initiaux ne sont plus interpretes comme des paquets de transport complets; la couche internet est conservee avec `payload_protocol: None`.
+
+### Validation
+
+- `cargo test` passe avec 274 tests unitaires et 13 doctests.
+- `cargo test --features parse_timing` passe avec 282 tests unitaires et 13 doctests.
+
+## [1.5.1] - 2026-06-24
+
+### Corrige
+
+- Renommage des champs `protocol` aplatis dans `PacketFlowOwned` pour eviter les collisions JSON entre les couches internet, transport et application.
+
+## [1.5.0] - 2026-06-23
+
+### Ajoute
+
+- Ajout du parsing EtherNet/IP encapsulation, detecte sans dependance au port.
+
+### Validation
+
+- `cargo fmt --check` passe.
+- `cargo test` passe avec 271 tests unitaires et 13 doctests.
+
+## [1.4.0] - 2026-06-23
+
+### Ajoute
+
+- Ajout de `METHODE_AJOUT_PROTOCOLE.md`, qui documente la methode de travail pour ajouter un nouveau protocole.
+- Ajout d'une strategie zero-copy pour les nouveaux parseurs : payloads et champs variables en references, pas de copies inutiles dans le chemin de parsing.
+- Ajout d'une exigence de rustdoc avec schema Mermaid `packet-beta` pour le type principal de chaque nouveau protocole.
+- Ajout d'erreurs applicatives dediees pour HTTP, DHCP, COTP et S7Comm.
+- Ajout de modules `src/checks/application/*` et `src/checks/internet/profinet.rs` pour centraliser les validations des parseurs.
+- Ajout de modules d'erreurs dedies pour AMS, GIOP, Modbus/TCP, OPC UA, SRVLOC, TLS et Profinet.
+- Ajout de checks dedies pour ARP, IPv4, IPv6, UDP, DHCPv6, QUIC, DNS, Bitcoin, MQTT, Modbus/TCP et SRVLOC.
+- Ajout du parsing SNMP v1/v2c/v3 avec detection UDP 161/162, PDU standards et varbinds.
+
+### Change
+
+- Alignement des parseurs HTTP, DHCP, COTP et S7Comm vers une interface `TryFrom<&[u8]>`.
+- Remplacement des erreurs de parsing non typees (`bool`, `&'static str`) par des erreurs dediees.
+- Conservation des fonctions helper existantes quand elles restent utiles, mais avec des types d'erreur explicites.
+- Correction d'un commentaire Bitcoin obsolete qui mentionnait encore un retour `bool`.
+- Deplacement des validations nommees `check_*`, `validate_*` et `ensure_*` hors de `src/parse`.
+- Deplacement des enums d'erreur restantes hors des fichiers de parsing vers `src/errors`.
+- Mise a jour des parseurs AMS, Bitcoin, COTP, DHCP, DNS, GIOP, HTTP, Modbus/TCP, MQTT, OPC UA, S7Comm, SRVLOC, TLS et Profinet pour utiliser les modules `checks` et `errors`.
+- Migration des validations inline prioritaires hors des parseurs Data Link, Internet, Transport, DNS, DHCPv6, QUIC, Bitcoin, MQTT, Modbus/TCP et SRVLOC.
+- Deplacement de la validation `dns_flags` depuis le module de parsing DNS vers `src/checks/application/dns.rs`.
+
+### Validation
+
+- `cargo fmt` passe.
+- `cargo test` passe avec 264 tests unitaires et 13 doctests.
+
+## Historique avant changelog
+
+Les versions precedentes n'etaient pas encore documentees dans un changelog dedie. Consulter l'historique Git pour les changements plus anciens.

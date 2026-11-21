@@ -1,0 +1,283 @@
+// Copyright (c) 2026 Cyprien Avico avicocyprien@yahoo.com
+//
+// Licensed under the MIT License <LICENSE-MIT or http://opensource.org/licenses/MIT>.
+// This file may not be copied, modified, or distributed except according to those terms.
+
+use crate::{
+    checks::internet::ipv4::{
+        IPV4_MIN_HEADER_LEN, validate_ipv4_header_available, validate_ipv4_header_length,
+        validate_ipv4_min_length, validate_ipv4_total_length, validate_ipv4_version,
+    },
+    errors::internet::ipv4::Ipv4Error,
+    parse::internet::dscp_ecn::{Dscp, Ecn},
+};
+use std::convert::TryFrom;
+use std::net::Ipv4Addr;
+
+/// IPv4 Packet Structure
+///
+/// Represents an Internet Protocol version 4 packet
+///
+/// ```mermaid
+/// ---
+/// title: Ipv4Packet
+/// ---
+/// packet-beta
+/// 0-3: "Version u4"
+/// 4-7: "IHL u4"
+/// 8-15: "DSCP/ECN u8"
+/// 16-31: "Total Length u16"
+/// 32-47: "Identification u16"
+/// 48-50: "Flags u3"
+/// 51-63: "Fragment Offset u13"
+/// 64-71: "TTL u8"
+/// 72-79: "Protocol u8"
+/// 80-95: "Header Checksum u16"
+/// 96-127: "Source IPv4 u32"
+/// 128-159: "Destination IPv4 u32"
+/// 160-191: "Options / Payload variable"
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct Ipv4Packet<'a> {
+    /// Version (4 for IPv4) and Internet Header Length (IHL)
+    pub version_ihl: u8,
+    /// Type of Service
+    pub dscp_ecn: u8,
+    /// Total Length of the packet (header + data), as on the wire: 0 for a
+    /// packet captured before TCP segmentation offload, whose payload then
+    /// runs to the end of the frame.
+    pub total_length: u16,
+    /// Identification
+    pub identification: u16,
+    /// Flags and Fragment Offset
+    pub flags_fragment: u16,
+    /// Time to Live
+    pub ttl: u8,
+    /// Protocol (e.g., 6 for TCP, 17 for UDP)
+    pub protocol: u8,
+    /// Header Checksum
+    pub header_checksum: u16,
+    /// Source IP Address
+    pub source_addr: Ipv4Addr,
+    /// Destination IP Address
+    pub dest_addr: Ipv4Addr,
+    /// Options (if any, variable length)
+    pub options: &'a [u8],
+    /// Payload data
+    pub payload: &'a [u8],
+}
+
+impl<'a> Ipv4Packet<'a> {
+    /// Returns the IP version (should be 4 for IPv4)
+    pub fn version(&self) -> u8 {
+        self.version_ihl >> 4
+    }
+
+    /// Returns the Internet Header Length (IHL) in 32-bit words
+    pub fn ihl(&self) -> u8 {
+        self.version_ihl & 0x0F
+    }
+
+    /// Returns the header length in bytes
+    pub fn header_length(&self) -> usize {
+        (self.ihl() as usize) * 4
+    }
+
+    /// Returns the Differentiated Services Code Point (DSCP), with its
+    /// IANA-registered name available through `Display`/[`Dscp::name`].
+    pub fn dscp(&self) -> Dscp {
+        Dscp::from_ds_field(self.dscp_ecn)
+    }
+
+    /// Returns the Explicit Congestion Notification (ECN) field.
+    pub fn ecn(&self) -> Ecn {
+        Ecn::from_ds_field(self.dscp_ecn)
+    }
+
+    /// Returns the flags (3 bits)
+    pub fn flags(&self) -> u8 {
+        (self.flags_fragment >> 13) as u8
+    }
+
+    /// Returns the fragment offset (13 bits)
+    pub fn fragment_offset(&self) -> u16 {
+        self.flags_fragment & 0x1FFF
+    }
+
+    /// Returns true when the More Fragments flag is set.
+    pub fn more_fragments(&self) -> bool {
+        (self.flags() & 0b001) != 0
+    }
+
+    /// Returns true when this packet belongs to a fragmented IPv4 datagram.
+    pub fn is_fragmented(&self) -> bool {
+        self.more_fragments() || self.fragment_offset() != 0
+    }
+
+    /// Returns true when the payload cannot start with a complete L4 header.
+    pub fn is_non_initial_fragment(&self) -> bool {
+        self.fragment_offset() != 0
+    }
+}
+
+impl<'a> TryFrom<&'a [u8]> for Ipv4Packet<'a> {
+    type Error = Ipv4Error;
+
+    /// Attempts to parse a byte slice into an IPv4 packet
+    ///
+    /// # Arguments
+    /// * `data` - The byte slice containing the IPv4 packet
+    ///
+    /// # Returns
+    /// * `Result<Ipv4Packet, Ipv4Error>` - The parsed IPv4 packet or an error
+    fn try_from(data: &'a [u8]) -> Result<Self, Self::Error> {
+        validate_ipv4_min_length(data)?;
+
+        let version_ihl = data[0];
+        let version = version_ihl >> 4;
+        let ihl = version_ihl & 0x0F;
+
+        validate_ipv4_version(version)?;
+
+        let header_len = (ihl as usize) * 4;
+        validate_ipv4_header_length(header_len)?;
+        validate_ipv4_header_available(data.len(), header_len)?;
+
+        let dscp_ecn = data[1];
+        let total_length = u16::from_be_bytes([data[2], data[3]]);
+
+        validate_ipv4_total_length(total_length, header_len, data.len())?;
+
+        let identification = u16::from_be_bytes([data[4], data[5]]);
+        let flags_fragment = u16::from_be_bytes([data[6], data[7]]);
+        let ttl = data[8];
+        let protocol = data[9];
+        let header_checksum = u16::from_be_bytes([data[10], data[11]]);
+
+        let source_addr = Ipv4Addr::new(data[12], data[13], data[14], data[15]);
+        let dest_addr = Ipv4Addr::new(data[16], data[17], data[18], data[19]);
+
+        // Extract options if present
+        let options = if header_len > IPV4_MIN_HEADER_LEN {
+            &data[IPV4_MIN_HEADER_LEN..header_len]
+        } else {
+            &[]
+        };
+
+        // Extract payload : une longueur nulle (TSO) court jusqu'a la fin de
+        // la trame.
+        let payload = if total_length == 0 {
+            &data[header_len..]
+        } else if (total_length as usize) > header_len && (total_length as usize) <= data.len() {
+            &data[header_len..(total_length as usize)]
+        } else if (total_length as usize) > data.len() {
+            // If the total length exceeds the available data, use what we have
+            &data[header_len..]
+        } else {
+            // Empty slice if no payload
+            &[]
+        };
+
+        Ok(Ipv4Packet {
+            version_ihl,
+            dscp_ecn,
+            total_length,
+            identification,
+            flags_fragment,
+            ttl,
+            protocol,
+            header_checksum,
+            source_addr,
+            dest_addr,
+            options,
+            payload,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_ipv4_packet_parsing() {
+        // Example IPv4 packet (truncated for brevity)
+        let data = [
+            0x45, 0x00, 0x00, 0x3c, 0x1c, 0x46, 0x40, 0x00, 0x40, 0x06, 0x00, 0x00, 0xc0, 0xa8,
+            0x01, 0x01, 0xc0, 0xa8, 0x01, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x50, 0x02, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        ];
+
+        let packet = Ipv4Packet::try_from(&data[..]).unwrap();
+
+        assert_eq!(packet.version(), 4);
+        assert_eq!(packet.ihl(), 5);
+        assert_eq!(packet.header_length(), 20);
+        assert_eq!(packet.total_length, 60);
+        assert_eq!(packet.protocol, 6); // TCP
+        assert_eq!(packet.source_addr, Ipv4Addr::new(192, 168, 1, 1));
+        assert_eq!(packet.dest_addr, Ipv4Addr::new(192, 168, 1, 2));
+        assert!(packet.options.is_empty());
+    }
+
+    #[test]
+    fn test_invalid_version() {
+        // Version 6 (should be 4)
+        let data = [
+            0x65, 0x00, 0x00, 0x3c, 0x1c, 0x46, 0x40, 0x00, 0x40, 0x06, 0x00, 0x00, 0xc0, 0xa8,
+            0x01, 0x01, 0xc0, 0xa8, 0x01, 0x02,
+        ];
+
+        let result = Ipv4Packet::try_from(&data[..]);
+        assert!(matches!(result, Err(Ipv4Error::InvalidVersion(6))));
+    }
+
+    #[test]
+    fn test_invalid_header_length() {
+        // IHL = 1 (less than minimum 5)
+        let data = [
+            0x41, 0x00, 0x00, 0x3c, 0x1c, 0x46, 0x40, 0x00, 0x40, 0x06, 0x00, 0x00, 0xc0, 0xa8,
+            0x01, 0x01, 0xc0, 0xa8, 0x01, 0x02,
+        ];
+
+        let result = Ipv4Packet::try_from(&data[..]);
+        assert!(matches!(result, Err(Ipv4Error::InvalidHeaderLength(4))));
+    }
+
+    #[test]
+    fn test_fragment_helpers() {
+        let data = [
+            0x45, 0x00, 0x00, 0x18, 0x1c, 0x46, 0x20, 0x01, 0x40, 0x11, 0x00, 0x00, 0xc0, 0xa8,
+            0x01, 0x01, 0xc0, 0xa8, 0x01, 0x02, 0xde, 0xad, 0xbe, 0xef,
+        ];
+
+        let packet = Ipv4Packet::try_from(&data[..]).unwrap();
+
+        assert_eq!(packet.fragment_offset(), 1);
+        assert!(packet.more_fragments());
+        assert!(packet.is_fragmented());
+        assert!(packet.is_non_initial_fragment());
+    }
+
+    /// #168 : longueur totale nulle d'un paquet capture avant la
+    /// segmentation par la carte (TSO) — la charge court jusqu'a la fin de
+    /// la trame. Synthetique : en-tete de vingt octets, TCP, 1 400 octets.
+    #[test]
+    fn test_zero_total_length_is_tso() {
+        let mut data = vec![
+            0x45, 0x00, 0x00, 0x00, 0x12, 0x34, 0x40, 0x00, 0x40, 0x06, 0x00, 0x00, 10, 0, 2, 15,
+            125, 209, 252, 210,
+        ];
+        data.extend(std::iter::repeat_n(0xab, 1400));
+        let packet = Ipv4Packet::try_from(data.as_slice()).expect("paquet TSO");
+        assert_eq!(packet.total_length, 0);
+        assert_eq!(packet.payload.len(), 1400);
+        // Toute autre longueur plus courte que l'en-tete reste invalide.
+        data[3] = 19;
+        assert!(Ipv4Packet::try_from(data.as_slice()).is_err());
+    }
+}

@@ -6,7 +6,8 @@
 # Sans option : régénère crates/lunar-flows-core/fuzz/Cargo.lock à partir du
 # lock de la racine (cargo retire ce qui ne sert pas au fuzzing et résout les
 # crates qui lui sont propres, libfuzzer-sys et arbitrary). À relancer après
-# toute mise à jour des dépendances de lunar-flows-core.
+# toute mise à jour des dépendances de lunar-flows-core, puis régénérer vendor/
+# (script/vendor.sh ; script/vendor.sh --update enchaîne les deux).
 # Avec --check : vérifie sans rien écrire (CI).
 set -Eeuo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -60,7 +61,9 @@ case "${1:-}" in
     ;;
   "")
     cp -- "$root/Cargo.lock" "$fuzz/Cargo.lock"
-    (cd "$fuzz" && cargo metadata --format-version 1 >/dev/null)
+    # Hors du dépôt, donc hors de .cargo/config.toml : la résolution se fait
+    # sur crates.io, vendor/ n'ayant pas encore les versions mises à jour.
+    (cd / && cargo metadata --format-version 1 --manifest-path "$fuzz/Cargo.toml" >/dev/null)
     drifted="$(drift)"
     [[ -z "$drifted" ]] || { echo "alignement impossible : $drifted" >&2; exit 1; }
     echo "Cargo.lock du fuzzing régénéré : $(versions "$fuzz/Cargo.lock" | wc -l) paquets."
