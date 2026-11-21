@@ -101,6 +101,24 @@ jobs:
       - name: Vérification des dépendances
         run: cargo deny --locked check
 
+  # Chaîne d'approvisionnement : vendor/ doit être exactement ce que crates.io
+  # fournit pour les Cargo.lock. Tous les autres jobs compilent depuis vendor/
+  # (.cargo/config.toml) ; celui-ci est le seul à interroger crates.io.
+  vendor:
+    name: Dépendances vendorisées intactes
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Toolchain Rust
+        run: script/ci/install-toolchain.sh
+
+      - name: vendor/ identique aux sources de crates.io
+        run: script/vendor.sh --verify
+
   # Fuzzing borné des lecteurs de fichiers non fiables (capture PCAP, matrice
   # CSV, relevé WinAudit) : la CI prouve à chaque push que les cibles
   # s'exécutent et qu'aucun crash trivial n'existe. Les campagnes longues se

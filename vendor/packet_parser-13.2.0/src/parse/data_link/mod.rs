@@ -1,0 +1,614 @@
+// Copyright (c) 2024 Cyprien Avico avicocyprien@yahoo.com
+//
+// Licensed under the MIT License <LICENSE-MIT or http://opensource.org/licenses/MIT>.
+// This file may not be copied, modified, or distributed except according to those terms.
+
+// parsed_packet/data_link/mod.rs
+
+//! The `DataLink` module provides functionality to parse and analyze data link layer packets,
+//! specifically Ethernet frames. It extracts MAC addresses, Ethertype, and the payload from
+//! a raw byte slice.
+//!
+//! # Overview
+//!
+//! The `DataLink` structure represents an Ethernet frame with the following fields:
+//! - `destination_mac`: The destination MAC address of the packet.
+//! - `source_mac`: The source MAC address of the packet.
+//! - `ethertype`: The Ethertype value, which indicates the protocol used in the payload.
+//! - `payload`: The remaining packet data after the Ethernet header.
+//!
+//! This module includes:
+//! - A `TryFrom<&[u8]>` implementation to parse an Ethernet frame from a raw byte slice.
+//! - A validation step to ensure the packet length is sufficient before parsing.
+//!
+//! # Example
+//!
+//! ```rust
+//! use packet_parser::parse::data_link::DataLink;
+//!
+//! let raw_packet: [u8; 18] = [
+//!     0x00, 0x11, 0x22, 0x33, 0x44, 0x55, // Destination MAC
+//!     0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, // Source MAC
+//!     0x08, 0x00, // Ethertype (IPv4)
+//!     0x45, 0x00, 0x00, 0x54, // Payload (IPv4 Header fragment)
+//! ];
+//!
+//! let datalink = DataLink::try_from(raw_packet.as_ref()).expect("Failed to parse valid packet");
+//! println!("{:?}", datalink);
+//! ```
+//!
+//! # Errors
+//!
+//! The `TryFrom<&[u8]>` implementation can return a `DataLinkError` if:
+//! - The packet is too short to contain a valid Ethernet frame.
+//! - The MAC addresses or Ethertype are invalid.
+//!
+//! # See Also
+//! - [`MacAddress`]
+//! - [`Ethertype`]
+
+pub mod mac_address;
+use mac_address::MacAddress;
+use serde::Serialize;
+
+pub mod ethertype;
+pub mod pppoe;
+pub mod stp;
+pub mod vlan_tag;
+
+use crate::{
+    checks::data_link::{validate_data_link_length, validate_data_link_vlan_stack_length},
+    errors::data_link::DataLinkError,
+    parse::data_link::{
+        pppoe::{PPPOE_SESSION_ETHERTYPE, PppoeSession, peel_session},
+        vlan_tag::{VlanStack, VlanTag},
+    },
+};
+
+use ethertype::Ethertype;
+
+/// En-tete Ethernet II : deux MAC et un EtherType.
+const DATALINK_HEADER_LEN: usize = 14;
+/// Un tag VLAN : TCI (2 octets) et EtherType suivant (2 octets).
+const VLAN_TAG_LEN: usize = 4;
+
+/// Ethernet Frame
+///
+/// ```mermaid
+/// ---
+/// title: DataLink
+/// ---
+/// packet-beta
+/// 0-47: "Destination MAC u48"
+/// 48-95: "Source MAC u48"
+/// 96-111: "EtherType / VLAN TPID u16"
+/// 112-127: "VLAN TCI u16 if present"
+/// 128-143: "Inner EtherType u16 if VLAN (may be another TPID)"
+/// 144-191: "Payload variable"
+/// ```
+///
+/// Represents a parsed Ethernet frame, containing source and destination MAC addresses,
+/// an Ethertype, an optional VLAN tag, and the payload.
+///
+/// Stacked tags (IEEE 802.1ad / QinQ: an S-tag `0x88a8` or legacy `0x9100`
+/// followed by a C-tag `0x8100`, or two `0x8100`) are consumed entirely so
+/// that `ethertype` and `payload` always describe the real layer 3. `vlan`
+/// then holds the **innermost** tag (the C-VLAN, i.e. the customer network),
+/// the only one whose `inner_ethertype` is that real layer 3. The whole
+/// stack, outermost tag first, is in `vlan_stack` (#82).
+///
+/// A PPPoE session (EtherType `0x8864`, RFC 2516) is unwrapped the same way
+/// when its PPP payload is IPv4 or IPv6: `ethertype` and `payload` then
+/// describe that packet, and `pppoe` keeps the session (#172). With a PPP
+/// control protocol (LCP, IPCP...), `ethertype` stays `0x8864` and `payload`
+/// is the PPP packet. Like tshark, the PPP packet is bounded by the PPPoE
+/// length, which drops the Ethernet padding of a short frame, then by the
+/// end of the frame: a PPPoE length shorter than the IP packet it carries
+/// truncates it, and the Internet layer reports it corrupted.
+// serde ecrit les champs dans l'ordre de leur declaration : celui de
+// `DataLinkOwned`, dont le schema fait foi, pour que les deux modeles rendent
+// le meme texte JSON, pas seulement les memes valeurs (#193).
+#[derive(Debug, Clone, Serialize, Eq)]
+#[non_exhaustive]
+pub struct DataLink<'a> {
+    /// The destination MAC address (serialized as a string).
+    pub destination_mac: MacAddress,
+    /// The source MAC address (serialized as a string).
+    pub source_mac: MacAddress,
+    /// The Ethertype of the packet, indicating the protocol in the payload
+    /// (serialized as its name, e.g. "IPv4").
+    #[serde(serialize_with = "ethertype::serialize_name")]
+    pub ethertype: Ethertype,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vlan: Option<VlanTag>,
+    /// The whole VLAN tag stack, outermost first (802.1ad / QinQ: S-tag then
+    /// C-tag). Serialized only when at least two tags are stacked: below
+    /// that, `vlan` already says it all.
+    #[serde(skip_serializing_if = "VlanStack::is_not_stacked")]
+    pub vlan_stack: VlanStack<'a>,
+    /// The PPPoE session the frame belongs to, if any. Not serialized yet:
+    /// the owned model (`DataLinkOwned`, an exhaustive struct) cannot carry
+    /// it without an API break, and both models must serialize to the same
+    /// JSON.
+    #[serde(skip_serializing)]
+    pub pppoe: Option<PppoeSession>,
+    /// The payload of the Ethernet frame.
+    #[serde(skip_serializing)]
+    pub payload: &'a [u8],
+}
+
+/// Parses `packets` as an **Ethernet II** frame.
+///
+/// Low-level entry point, kept for compatibility. It only checks that the
+/// buffer is long enough — it never verifies that the bytes *are* Ethernet, so
+/// a capture in another LINKTYPE yields a successful parse holding fabricated
+/// MAC addresses. Prefer [`fn@crate::parse`], which dispatches on the LINKTYPE
+/// declared by the capture and refuses the ones it does not support.
+impl<'a> TryFrom<&'a [u8]> for DataLink<'a> {
+    type Error = DataLinkError;
+
+    fn try_from(packets: &'a [u8]) -> Result<Self, Self::Error> {
+        validate_data_link_length(packets)?;
+
+        let destination_mac = MacAddress::try_from(&packets[0..6])?;
+        let source_mac = MacAddress::try_from(&packets[6..12])?;
+
+        // EtherType brut : couche 3, ou TPID d'un tag VLAN.
+        let raw_ethertype = u16::from_be_bytes([packets[12], packets[13]]);
+        if VlanTag::is_tpid(raw_ethertype) {
+            return Self::parse_tagged(packets, destination_mac, source_mac, raw_ethertype);
+        }
+        if raw_ethertype == PPPOE_SESSION_ETHERTYPE {
+            return Ok(Self::parse_pppoe(
+                destination_mac,
+                source_mac,
+                None,
+                VlanStack::default(),
+                &packets[DATALINK_HEADER_LEN..],
+            ));
+        }
+
+        // Cas courant, sans tag : chemin en ligne droite. La pile de tags vit
+        // dans une fonction a part — la derouler ici coutait ~13 ns a chaque
+        // trame, taguee ou non (mesure sur le paquet de reference).
+        Ok(DataLink {
+            destination_mac,
+            source_mac,
+            vlan: None,
+            vlan_stack: VlanStack::default(),
+            pppoe: None,
+            ethertype: Ethertype::from(raw_ethertype),
+            payload: &packets[DATALINK_HEADER_LEN..],
+        })
+    }
+}
+
+impl<'a> DataLink<'a> {
+    /// Pile de tags VLAN. Chaque tag fait 4 octets (TCI + EtherType suivant)
+    /// et cet EtherType peut lui-meme etre un TPID : 802.1ad met un S-tag
+    /// 0x88a8 (ou 0x9100 historique) devant le C-tag 0x8100, et certains
+    /// equipements empilent deux 0x8100. On consomme toute la pile pour
+    /// atteindre la vraie couche 3 ; `vlan` garde le tag interne, le seul
+    /// dont `inner_ethertype` est cette couche 3, `vlan_stack` la pile.
+    #[inline(never)]
+    fn parse_tagged(
+        packets: &'a [u8],
+        destination_mac: MacAddress,
+        source_mac: MacAddress,
+        raw_ethertype: u16,
+    ) -> Result<Self, DataLinkError> {
+        let mut vlan: Option<VlanTag> = None;
+        let mut next_ethertype = raw_ethertype;
+        let mut offset = DATALINK_HEADER_LEN;
+        let mut tags = 0;
+        while VlanTag::is_tpid(next_ethertype) {
+            tags += 1;
+            validate_data_link_vlan_stack_length(packets, tags)?;
+            let tag = VlanTag::try_from(&packets[offset..offset + VLAN_TAG_LEN])?;
+            next_ethertype = tag.inner_ethertype.0;
+            offset += VLAN_TAG_LEN;
+            vlan = Some(tag);
+        }
+
+        // Blocs TCI + EtherType suivant de chaque tag : du premier TCI
+        // (octet 14) a l'EtherType de couche 3, deja bornes par
+        // validate_data_link_vlan_stack_length.
+        let vlan_stack = VlanStack::new(&packets[DATALINK_HEADER_LEN..offset]);
+        if next_ethertype == PPPOE_SESSION_ETHERTYPE {
+            return Ok(Self::parse_pppoe(
+                destination_mac,
+                source_mac,
+                vlan,
+                vlan_stack,
+                &packets[offset..],
+            ));
+        }
+        Ok(DataLink {
+            destination_mac,
+            source_mac,
+            vlan,
+            vlan_stack,
+            pppoe: None,
+            ethertype: Ethertype::from(next_ethertype),
+            payload: &packets[offset..],
+        })
+    }
+
+    /// Session PPPoE (#172) : quand PPP porte IPv4 ou IPv6, la session est
+    /// pelee comme un tag VLAN ; avec un protocole de controle, l'EtherType
+    /// reste `0x8864` et la charge est le paquet PPP ; une trame qui n'est
+    /// pas une session bien formee reste telle quelle, sans couche 3, comme
+    /// un EtherType inconnu.
+    #[inline(never)]
+    fn parse_pppoe(
+        destination_mac: MacAddress,
+        source_mac: MacAddress,
+        vlan: Option<VlanTag>,
+        vlan_stack: VlanStack<'a>,
+        payload: &'a [u8],
+    ) -> Self {
+        let (pppoe, ethertype, payload) = match peel_session(payload) {
+            Some((session, inner)) => (
+                Some(session),
+                session.inner_ethertype().unwrap_or(PPPOE_SESSION_ETHERTYPE),
+                inner,
+            ),
+            None => (None, PPPOE_SESSION_ETHERTYPE, payload),
+        };
+        DataLink {
+            destination_mac,
+            source_mac,
+            vlan,
+            vlan_stack,
+            pppoe,
+            ethertype: Ethertype::from(ethertype),
+            payload,
+        }
+    }
+}
+
+impl DataLink<'_> {
+    /// Ce qui, dans la session PPPoE, identifie un flux : la session et le
+    /// protocole PPP. La longueur PPPoE change a chaque paquet, comme la
+    /// charge utile, et n'en fait pas partie.
+    fn pppoe_flow_key(&self) -> Option<(u16, u16)> {
+        self.pppoe
+            .map(|session| (session.session_id, session.ppp_protocol))
+    }
+}
+
+impl<'a> PartialEq for DataLink<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        self.destination_mac == other.destination_mac
+            && self.source_mac == other.source_mac
+            && self.vlan == other.vlan
+            && self.vlan_stack == other.vlan_stack
+            && self.pppoe_flow_key() == other.pppoe_flow_key()
+            && self.ethertype == other.ethertype
+    }
+}
+
+use std::hash::{Hash, Hasher};
+
+impl<'a> Hash for DataLink<'a> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.destination_mac.hash(state);
+        self.source_mac.hash(state);
+        self.vlan.hash(state);
+        self.vlan_stack.hash(state);
+        self.pppoe_flow_key().hash(state);
+        self.ethertype.hash(state);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use std::hash::{DefaultHasher, Hash, Hasher};
+
+    use crate::errors::data_link::DataLinkError;
+    use crate::parse::data_link::DataLink;
+    use crate::parse::data_link::mac_address::MacAddress;
+
+    /// Ethernet, PPPoE session `session`, PPP `protocol` (deux octets), puis
+    /// `body` ; la longueur PPPoE couvre le protocole et `body`.
+    fn pppoe_frame(session: u16, protocol: u16, body: &[u8]) -> Vec<u8> {
+        let mut frame = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0x88, 0x64, 0x11, 0x00];
+        frame.extend(session.to_be_bytes());
+        frame.extend(u16::try_from(body.len() + 2).unwrap().to_be_bytes());
+        frame.extend(protocol.to_be_bytes());
+        frame.extend(body);
+        frame
+    }
+
+    fn hash_of(frame: &DataLink<'_>) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        frame.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// #172 : PPP IPv4 sans tag VLAN — `ethertype` et `payload` decrivent le
+    /// paquet IP, `pppoe` garde la session ; le bourrage est ecarte.
+    #[test]
+    fn test_pppoe_session_is_peeled_to_ipv4() {
+        let mut bytes = pppoe_frame(0x0f07, 0x0021, &[0x45, 0, 0, 20]);
+        bytes.extend([0; 6]);
+        let frame = DataLink::try_from(bytes.as_slice()).expect("PPPoE");
+        assert_eq!(frame.ethertype.name(), "IPv4");
+        assert_eq!(frame.payload, &[0x45, 0, 0, 20]);
+        let session = frame.pppoe.expect("session");
+        assert_eq!((session.session_id, session.length), (0x0f07, 6));
+    }
+
+    /// LCP : la session est gardee, l'EtherType reste PPPoE et la charge est
+    /// le paquet PPP ; une session mal formee n'est pas pelee.
+    #[test]
+    fn test_pppoe_control_protocol_and_malformed_session() {
+        let bytes = pppoe_frame(0x0f07, 0xc021, &[0x09, 0x01, 0x00, 0x04]);
+        let frame = DataLink::try_from(bytes.as_slice()).expect("LCP");
+        assert_eq!(frame.ethertype.0, 0x8864);
+        assert_eq!(frame.payload, &[0x09, 0x01, 0x00, 0x04]);
+        assert_eq!(frame.pppoe.map(|s| s.ppp_protocol), Some(0xc021));
+
+        let mut bytes = pppoe_frame(0x0f07, 0x0021, &[0x45]);
+        bytes[14] = 0x12;
+        let frame = DataLink::try_from(bytes.as_slice()).expect("version 2");
+        assert_eq!(frame.ethertype.0, 0x8864);
+        assert!(frame.pppoe.is_none());
+        assert_eq!(frame.payload, &bytes[14..]);
+    }
+
+    /// L'identite d'un flux PPPoE : la session et le protocole PPP, pas la
+    /// longueur, qui change a chaque paquet comme la charge utile.
+    #[test]
+    fn test_pppoe_flow_identity_ignores_the_length() {
+        let short = pppoe_frame(0x0f07, 0x0021, &[0x45, 0, 0, 20]);
+        let long = pppoe_frame(0x0f07, 0x0021, &[0x45, 0, 0, 24, 0, 0, 0, 0]);
+        let other = pppoe_frame(0x0f08, 0x0021, &[0x45, 0, 0, 20]);
+        let short = DataLink::try_from(short.as_slice()).unwrap();
+        let long = DataLink::try_from(long.as_slice()).unwrap();
+        let other = DataLink::try_from(other.as_slice()).unwrap();
+        assert_ne!(short.pppoe, long.pppoe, "longueurs differentes");
+        assert_eq!(short, long);
+        assert_eq!(hash_of(&short), hash_of(&long));
+        assert_ne!(short, other, "autre session");
+        assert_ne!(hash_of(&short), hash_of(&other));
+        // Meme EtherType (0x8864) : seul le protocole PPP separe LCP d'IPCP.
+        let lcp = pppoe_frame(0x0f07, 0xc021, &[0x09, 0x01, 0x00, 0x04]);
+        let ipcp = pppoe_frame(0x0f07, 0x8021, &[0x09, 0x01, 0x00, 0x04]);
+        let lcp = DataLink::try_from(lcp.as_slice()).unwrap();
+        let ipcp = DataLink::try_from(ipcp.as_slice()).unwrap();
+        assert_eq!(lcp.ethertype, ipcp.ethertype);
+        assert_ne!(lcp, ipcp);
+        assert_ne!(hash_of(&lcp), hash_of(&ipcp));
+    }
+
+    #[test]
+    fn test_datalink_try_from_valid_packet() {
+        let raw_packet: [u8; 18] = [
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, // Destination MAC
+            0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, // Source MAC
+            0x08, 0x00, // Ethertype (IPv4)
+            0x45, 0x00, 0x00, 0x54, // Payload (IPv4 Header fragment)
+        ];
+
+        let datalink =
+            DataLink::try_from(raw_packet.as_ref()).expect("Failed to parse valid packet");
+
+        assert_eq!(
+            datalink.destination_mac,
+            MacAddress::try_from(&raw_packet[0..6]).unwrap()
+        );
+        assert_eq!(
+            datalink.source_mac,
+            MacAddress::try_from(&raw_packet[6..12]).unwrap()
+        );
+        assert_eq!(datalink.ethertype.name(), "IPv4"); // IPv4 Ethertype
+    }
+
+    #[test]
+    fn test_datalink_try_from_invalid_length() {
+        let short_packet: [u8; 10] = [0x00; 10];
+
+        let result = DataLink::try_from(short_packet.as_ref());
+        assert!(matches!(
+            result,
+            Err(DataLinkError::DataLinkTooShort { .. })
+        ));
+    }
+
+    #[test]
+    fn test_datalink_try_from_ethertype_parsing() {
+        let raw_packet: [u8; 18] = [
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, // Destination MAC
+            0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, // Source MAC
+            0x86, 0xDD, // Ethertype (IPv6)
+            0x60, 0x00, 0x00, 0x00, // IPv6 Header fragment
+        ];
+
+        let datalink = DataLink::try_from(raw_packet.as_ref()).unwrap();
+        assert_eq!(datalink.ethertype.name(), "IPv6"); // IPv6 Ethertype
+    }
+
+    #[test]
+    fn test_datalink_try_from_ethertype_unknown() {
+        let raw_packet: [u8; 18] = [
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, // Destination MAC
+            0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, // Source MAC
+            0xAB, 0xCD, // Inconnu Ethertype
+            0x12, 0x34, 0x56, 0x78, // Payload quelconque
+        ];
+
+        let datalink = DataLink::try_from(raw_packet.as_ref()).unwrap();
+        assert_eq!(datalink.ethertype.name(), "Unknown (0xABCD)"); // Ethertype inconnu, mais accepté
+    }
+    #[test]
+    fn test_datalink_try_from_empty_payload() {
+        let raw_packet: [u8; 14] = [
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, // Destination MAC
+            0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, // Source MAC
+            0xAB, 0xCD, // Inconnu Ethertype
+        ];
+
+        let datalink = DataLink::try_from(raw_packet.as_ref()).unwrap();
+        assert_eq!(datalink.ethertype.name(), "Unknown (0xABCD)"); // Ethertype inconnu, mais accepté
+    }
+
+    #[test]
+    fn test_datalink_try_from_vlan_tagged() {
+        // Dest MAC, Src MAC, TPID=0x8100, TCI (PCP=0, DEI=0, VLAN 10), inner EtherType=0x0800 (IPv4)
+        let raw_packet: [u8; 22] = [
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, // Dest
+            0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, // Src
+            0x81, 0x00, // TPID 802.1Q
+            0x00, 0x0A, // TCI : VLAN 10
+            0x08, 0x00, // Inner EtherType : IPv4
+            0x45, 0x00, 0x00, 0x54, // Début header IPv4
+        ];
+
+        let datalink = DataLink::try_from(raw_packet.as_ref()).unwrap();
+
+        assert_eq!(datalink.ethertype.name(), "IPv4");
+        assert!(datalink.vlan.is_some());
+        let vlan = datalink.vlan.unwrap();
+        assert_eq!(vlan.id, 10);
+        assert_eq!(datalink.payload, &raw_packet[18..]);
+    }
+
+    /// `vlan_stack` : vide sans tag, un element pour du 802.1Q simple, et
+    /// serialisee seulement a partir de deux tags — le JSON des trames
+    /// existantes ne change pas.
+    #[test]
+    fn test_vlan_stack_is_only_serialized_when_tags_are_stacked() {
+        let untagged = [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, // MAC
+            0x08, 0x00, 0x45, // IPv4
+        ];
+        let frame = DataLink::try_from(&untagged[..]).expect("trame sans tag");
+        assert!(frame.vlan_stack.is_empty());
+        assert_eq!(frame.vlan_stack.outer(), None);
+
+        let single = [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, // MAC
+            0x81, 0x00, 0x00, 0x68, 0x08, 0x00, 0x45, // C-tag VID 104, IPv4
+        ];
+        let frame = DataLink::try_from(&single[..]).expect("trame 802.1Q");
+        assert_eq!(frame.vlan_stack.len(), 1);
+        assert_eq!(frame.vlan_stack.inner(), frame.vlan);
+        let json = serde_json::to_value(&frame).expect("serialisable");
+        assert_eq!(json["vlan"]["id"], 104);
+        assert!(json.get("vlan_stack").is_none(), "{json}");
+
+        let stacked = [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, // MAC
+            0x88, 0xA8, 0x00, 0xC8, // S-tag VID 200
+            0x81, 0x00, 0x00, 0x68, 0x08, 0x00, 0x45, // C-tag VID 104, IPv4
+        ];
+        let frame = DataLink::try_from(&stacked[..]).expect("trame QinQ");
+        let json = serde_json::to_value(&frame).expect("serialisable");
+        assert_eq!(json["vlan_stack"][0]["id"], 200);
+        assert_eq!(json["vlan_stack"][1]["id"], 104);
+        // Deux trames qui ne different que par leur tag externe sont
+        // distinctes : la pile participe a l'egalite et au hash.
+        let mut other = stacked;
+        other[15] = 0xC9; // S-tag VID 201
+        let other = DataLink::try_from(&other[..]).expect("trame QinQ");
+        assert_ne!(frame, other);
+        assert_eq!(frame.vlan, other.vlan);
+    }
+
+    /// 802.1ad / QinQ : S-tag 0x88a8 (VID 200) puis C-tag 0x8100 (VID 104,
+    /// PCP 3, DEI 1) devant de l'IPv4. `vlan` retient le tag interne avec
+    /// ses bits de priorite, `ethertype` la vraie couche 3, et la charge
+    /// utile commence apres les deux tags (octet 22).
+    #[test]
+    fn test_datalink_try_from_qinq_8021ad_keeps_inner_tag_and_reaches_l3() {
+        let raw_packet: [u8; 26] = [
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, // Dest
+            0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, // Src
+            0x88, 0xA8, 0x00, 0xC8, // S-tag : TPID 802.1ad, VID 200
+            0x81, 0x00, 0x70, 0x68, // C-tag : TPID 802.1Q, PCP 3, DEI 1, VID 104
+            0x08, 0x00, // EtherType reel : IPv4
+            0x45, 0x00, 0x00, 0x54, // Debut header IPv4
+        ];
+
+        let datalink = DataLink::try_from(raw_packet.as_ref()).unwrap();
+
+        let vlan = datalink.vlan.expect("tag interne conserve");
+        assert_eq!(vlan.id, 104);
+        assert_eq!(vlan.pcp, 3);
+        assert!(vlan.dei);
+        assert_eq!(vlan.inner_ethertype.name(), "IPv4");
+        assert_eq!(datalink.ethertype.name(), "IPv4");
+        assert_eq!(datalink.payload, &raw_packet[22..]);
+    }
+
+    /// Double 0x8100 (empilement non standard mais courant) : meme
+    /// resultat, le tag externe (VID 300) n'est plus pris pour le seul.
+    #[test]
+    fn test_datalink_try_from_double_8021q_keeps_inner_tag() {
+        let raw_packet: [u8; 26] = [
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, // Dest
+            0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, // Src
+            0x81, 0x00, 0x01, 0x2C, // Tag externe : VID 300
+            0x81, 0x00, 0x00, 0x6A, // Tag interne : VID 106
+            0x86, 0xDD, // EtherType reel : IPv6
+            0x60, 0x00, 0x00, 0x00, // Debut header IPv6
+        ];
+
+        let datalink = DataLink::try_from(raw_packet.as_ref()).unwrap();
+
+        assert_eq!(datalink.vlan.as_ref().map(|v| v.id), Some(106));
+        assert_eq!(datalink.ethertype.name(), "IPv6");
+        assert_eq!(datalink.payload, &raw_packet[22..]);
+    }
+
+    /// TPID QinQ historique 0x9100 en tag externe.
+    #[test]
+    fn test_datalink_try_from_qinq_legacy_9100() {
+        let raw_packet: [u8; 26] = [
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, // Dest
+            0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, // Src
+            0x91, 0x00, 0x00, 0x0A, // Tag externe historique : VID 10
+            0x81, 0x00, 0x00, 0x14, // Tag interne : VID 20
+            0x08, 0x06, // EtherType reel : ARP
+            0x00, 0x01, 0x08, 0x00, // Debut ARP
+        ];
+
+        let datalink = DataLink::try_from(raw_packet.as_ref()).unwrap();
+
+        assert_eq!(datalink.vlan.as_ref().map(|v| v.id), Some(20));
+        assert_eq!(datalink.ethertype.name(), "ARP");
+    }
+
+    /// Trame coupee au milieu du second tag : erreur explicite, pas d'acces
+    /// hors borne. 21 octets = 12 MAC + 4 (S-tag) + 5 (C-tag sans son dernier octet).
+    #[test]
+    fn test_datalink_try_from_qinq_truncated_inside_second_tag() {
+        let raw_packet: [u8; 21] = [
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, // Dest
+            0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, // Src
+            0x88, 0xA8, 0x00, 0xC8, // S-tag : TPID + TCI
+            0x81, 0x00, 0x00, 0x68, 0x08, // C-tag : TPID + TCI, EtherType ampute
+        ];
+
+        let result = DataLink::try_from(raw_packet.as_ref());
+        assert!(matches!(
+            result,
+            Err(DataLinkError::DataLinkTooShort {
+                required: 22,
+                actual: 21
+            })
+        ));
+
+        // Et un tag exactement complet mais sans un seul octet de charge
+        // utile reste accepte : charge utile vide, comme en Ethernet nu.
+        let exact: [u8; 22] = [
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0x88, 0xA8,
+            0x00, 0xC8, 0x81, 0x00, 0x00, 0x68, 0x08, 0x00,
+        ];
+        let datalink = DataLink::try_from(exact.as_ref()).unwrap();
+        assert_eq!(datalink.vlan.as_ref().map(|v| v.id), Some(104));
+        assert!(datalink.payload.is_empty());
+    }
+}

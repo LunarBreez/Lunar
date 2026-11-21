@@ -1,0 +1,610 @@
+// Copyright (c) 2026 Cyprien Avico avicocyprien@yahoo.com
+//
+// Licensed under the MIT License <LICENSE-MIT or http://opensource.org/licenses/MIT>.
+// This file may not be copied, modified, or distributed except according to those terms.
+
+mod dns_additional;
+mod dns_answers;
+mod dns_authoritative;
+mod dns_header;
+mod dns_queries;
+pub mod utils;
+
+use crate::{
+    checks::application::dns::check_dns_minimum_size, errors::application::dns::DnsPacketError,
+    parse::application::protocols::bounded_capacity,
+};
+use dns_additional::AdditionalRecord;
+use dns_answers::Answer;
+use dns_authoritative::AuthoritativeNameServer;
+use dns_header::DnsHeader;
+use dns_queries::DnsQueries;
+use std::fmt;
+use utils::name::{RawRecord, parse_mdns_resource_record, parse_resource_record};
+
+/// DNS Packet
+///
+/// ```mermaid
+/// ---
+/// title: DnsPacket
+/// ---
+/// packet-beta
+/// 0-15: "Transaction ID u16"
+/// 16-31: "Flags u16"
+/// 32-47: "Question Count u16"
+/// 48-63: "Answer Count u16"
+/// 64-79: "Authority Count u16"
+/// 80-95: "Additional Count u16"
+/// 96-159: "Questions variable"
+/// 160-223: "Answers / Authority / Additional variable"
+/// ```
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct DnsPacket<'a> {
+    pub header: DnsHeader,
+    pub queries: DnsQueries,
+    pub answers: Option<Vec<Answer<'a>>>, // List of answer records
+    pub authorities: Option<Vec<AuthoritativeNameServer<'a>>>, // List of authority records
+    pub additionals: Option<Vec<AdditionalRecord<'a>>>, // List of additional records
+}
+
+impl<'a> TryFrom<&'a [u8]> for DnsPacket<'a> {
+    type Error = DnsPacketError;
+
+    fn try_from(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        Self::parse_datagram(bytes).map(|(packet, _)| packet)
+    }
+}
+
+impl<'a> DnsPacket<'a> {
+    /// Decode la forme datagramme et retourne, avec le paquet, l'offset ou
+    /// s'arrete la derniere section.
+    fn parse_datagram(bytes: &'a [u8]) -> Result<(Self, usize), DnsPacketError> {
+        check_dns_minimum_size(bytes)?;
+
+        let header = DnsHeader::try_from(bytes)?;
+        Self::parse_sections(bytes, header)
+    }
+
+    /// Decode les quatre sections qui suivent `header`, et retourne l'offset
+    /// ou s'arrete la derniere.
+    fn parse_sections(bytes: &'a [u8], header: DnsHeader) -> Result<(Self, usize), DnsPacketError> {
+        // Les sections sont parsées sur le message complet : les pointeurs de
+        // compression (RFC 1035 §4.1.4) sont des offsets depuis l'octet 0.
+        let mut offset = 12;
+        let queries = DnsQueries::parse(bytes, &mut offset, header.counts[0])?;
+        let answers = parse_record_section::<Answer>(bytes, &mut offset, header.counts[1], false)?;
+        let authorities = parse_record_section::<AuthoritativeNameServer>(
+            bytes,
+            &mut offset,
+            header.counts[2],
+            false,
+        )?;
+        let additionals =
+            parse_record_section::<AdditionalRecord>(bytes, &mut offset, header.counts[3], false)?;
+
+        let packet = DnsPacket {
+            header,
+            queries,
+            answers,
+            authorities,
+            additionals,
+        };
+        Ok((packet, offset))
+    }
+
+    /// Sonde DNS aveugle, hors port 53 (issue #118).
+    ///
+    /// Plus stricte que [`TryFrom::try_from`], que le port 53 garde tolerant :
+    /// un message DNS sur UDP n'a pas de bourrage (RFC 1035 §4.2.1), ses
+    /// sections doivent donc consommer exactement le datagramme, et un
+    /// en-tete aux quatre compteurs nuls n'apporte aucune preuve. Sans ces
+    /// deux gardes, tout datagramme dont les douze premiers octets forment un
+    /// en-tete vide plausible passait pour du DNS.
+    ///
+    /// Un nom echappe n'y est pas une preuve non plus : hors UTF-8, un label
+    /// prend la forme `\DDD` (#297), et un `\` dans un nom ecarte le
+    /// datagramme. Le port 53 lit ces noms ; la sonde aveugle garde
+    /// l'exigence d'UTF-8 qu'elle avait.
+    pub(crate) fn is_blind_udp_match(bytes: &[u8]) -> bool {
+        DnsPacket::parse_datagram(bytes).is_ok_and(|(packet, end)| {
+            end == bytes.len()
+                && packet.header.counts.iter().any(|&count| count != 0)
+                && packet.names().all(|name| !name.contains('\\'))
+        })
+    }
+
+    /// Les noms de toutes les sections, dans l'ordre du message.
+    fn names(&self) -> impl Iterator<Item = &str> {
+        self.queries
+            .queries
+            .iter()
+            .map(|query| query.name.as_str())
+            .chain(
+                self.answers
+                    .iter()
+                    .flatten()
+                    .map(|record| record.name.as_str()),
+            )
+            .chain(
+                self.authorities
+                    .iter()
+                    .flatten()
+                    .map(|record| record.name.as_str()),
+            )
+            .chain(
+                self.additionals
+                    .iter()
+                    .flatten()
+                    .map(|record| record.name.as_str()),
+            )
+    }
+
+    /// Decode un message DNS transporte sur TCP (RFC 1035 §4.2.2) : le flux
+    /// prefixe chaque message d'une longueur sur deux octets. Seul le premier
+    /// message du segment est decode — un segment AXFR peut en enchainer
+    /// plusieurs, et un message a cheval sur plusieurs segments releve du
+    /// reassemblage TCP, hors de portee d'un parseur stateless.
+    ///
+    /// La longueur declaree doit couvrir au moins l'en-tete DNS et tenir dans
+    /// le segment : c'est elle qui distingue un vrai flux DNS/TCP d'un payload
+    /// arbitraire commencant par deux octets quelconques.
+    pub fn try_from_tcp(bytes: &'a [u8]) -> Result<Self, DnsPacketError> {
+        check_dns_minimum_size(bytes)?;
+
+        let declared = usize::from(u16::from_be_bytes([bytes[0], bytes[1]]));
+        let message = bytes
+            .get(2..2 + declared)
+            .ok_or(DnsPacketError::InsufficientData {
+                expected: 2 + declared,
+                actual: bytes.len(),
+            })?;
+        // Une reponse peut laisser sa question vide : les messages AXFR qui
+        // suivent le premier (RFC 5936 §2.2.1, #297).
+        check_dns_minimum_size(message)?;
+        let header = DnsHeader::try_from_tcp(message)?;
+        Self::parse_sections(message, header).map(|(packet, _)| packet)
+    }
+
+    /// Like [`TryFrom::try_from`], but tolerates an empty question section.
+    ///
+    /// mDNS reuses the DNS wire format (RFC 6762 §1) but its responders send
+    /// unsolicited announcements that never echo a question — rejected by
+    /// the strict `TryFrom` used for classic unicast DNS.
+    pub fn try_from_mdns(bytes: &'a [u8]) -> Result<Self, DnsPacketError> {
+        check_dns_minimum_size(bytes)?;
+
+        let header = DnsHeader::try_from_mdns(bytes)?;
+
+        let mut offset = 12;
+        let queries = DnsQueries::parse_mdns(bytes, &mut offset, header.counts[0])?;
+        let answers = parse_record_section::<Answer>(bytes, &mut offset, header.counts[1], true)?;
+        let authorities = parse_record_section::<AuthoritativeNameServer>(
+            bytes,
+            &mut offset,
+            header.counts[2],
+            true,
+        )?;
+        let additionals =
+            parse_record_section::<AdditionalRecord>(bytes, &mut offset, header.counts[3], true)?;
+
+        Ok(DnsPacket {
+            header,
+            queries,
+            answers,
+            authorities,
+            additionals,
+        })
+    }
+
+    /// Like [`TryFrom::try_from`], but with the LLMNR header rules
+    /// (RFC 4795 section 2.1.1).
+    ///
+    /// LLMNR (UDP 5355) reutilise le format DNS mais redispose les flags :
+    /// le bit 10 devient C (conflict), le bit 8 devient T (tentative), et Z
+    /// couvre 4 bits — seuls l'opcode 0 et un rcode nul en requete sont
+    /// acceptes, et QDCOUNT vaut exactement 1. Les sections sont parsees avec
+    /// le code DNS strict : les requetes n'utilisent pas la compression, mais
+    /// les reponses peuvent pointer vers le nom de la question.
+    ///
+    /// Attention : une requete DNS classique (RD=1, une question) est aussi
+    /// un en-tete LLMNR valide (RD occupe la position du bit T), et
+    /// inversement une requete LLMNR est un en-tete DNS valide. Les deux
+    /// formats se recouvrent sur le wire — seul le port UDP (53 vs 5355)
+    /// tranche, et c'est la table de dispatch qui applique cette garde.
+    pub fn try_from_llmnr(bytes: &'a [u8]) -> Result<Self, DnsPacketError> {
+        check_dns_minimum_size(bytes)?;
+
+        let header = DnsHeader::try_from_llmnr(bytes)?;
+
+        let mut offset = 12;
+        let queries = DnsQueries::parse(bytes, &mut offset, header.counts[0])?;
+        let answers = parse_record_section::<Answer>(bytes, &mut offset, header.counts[1], false)?;
+        let authorities = parse_record_section::<AuthoritativeNameServer>(
+            bytes,
+            &mut offset,
+            header.counts[2],
+            false,
+        )?;
+        let additionals =
+            parse_record_section::<AdditionalRecord>(bytes, &mut offset, header.counts[3], false)?;
+
+        Ok(DnsPacket {
+            header,
+            queries,
+            answers,
+            authorities,
+            additionals,
+        })
+    }
+}
+
+/// Parse `count` resource records à `*offset` dans `message`. Retourne `None`
+/// quand la section est vide.
+fn parse_record_section<'a, T: From<RawRecord<'a>>>(
+    message: &'a [u8],
+    offset: &mut usize,
+    count: u16,
+    mdns: bool,
+) -> Result<Option<Vec<T>>, DnsPacketError> {
+    if count == 0 {
+        return Ok(None);
+    }
+    // Un RR pèse au minimum 11 octets : nom racine 1 + type 2 + classe 2
+    // + TTL 4 + rdlength 2.
+    const MIN_RECORD_LEN: usize = 11;
+    let remaining = message.len().saturating_sub(*offset);
+    let mut records =
+        Vec::with_capacity(bounded_capacity(count as usize, remaining, MIN_RECORD_LEN));
+    for _ in 0..count {
+        let record = if mdns {
+            parse_mdns_resource_record(message, offset)?
+        } else {
+            parse_resource_record(message, offset)?
+        };
+        records.push(T::from(record));
+    }
+    Ok(Some(records))
+}
+
+impl fmt::Display for DnsPacket<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "DnsPacket {{\n  header: {},\n  queries: {},\n  answers: {:?},\n  authorities: {:?},\n  additionals: {:?}\n}}",
+            self.header, self.queries, self.answers, self.authorities, self.additionals
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Trame 1249 de `asterix/wireshark_8579_radardata.pcap` (issue #118),
+    /// flux radar 172.18.110.175:32811 -> 225.10.1.1:20201 : un en-tete aux
+    /// quatre compteurs nuls suivi de 120 octets que tshark, force en DNS,
+    /// classe en « Extraneous Data ».
+    const RADAR_FRAME_1249: &str = "0300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080000000800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a8e80808";
+
+    /// Reponse DNS a `us.pool.ntp.org` : 15 reponses, 6 autorites, 2
+    /// additionnels, avec pointeurs de compression.
+    const NTP_POOL_RESPONSE: &str = "002b81800001000f0006000202757304706f6f6c036e7470036f72670000010001c00c0001000100000d87000443814409c00c0001000100000d870004452c393cc00c0001000100000d870004cfead1b5c00c0001000100000d870004d184b004c00c0001000100000d870004d81bb92ac00c0001000100000d87000418224f2ac00c0001000100000d870004187bcae6c00c0001000100000d8700043fa43ef9c00c0001000100000d8700044070bd0bc00c0001000100000d870004417de9cec00c0001000100000d8700044221ce05c00c0001000100000d8700044221d80bc00c0001000100000d870004425c44f6c00c0001000100000d870004426f2ec8c00c0001000100000d8700044273880404504f4f4c036e7470036f72670000020001000010d60012036e7331086d61696c776f7278036e657400c11100020001000010d6000f067573656e6574036e6574026e7a00c11100020001000010d60014067a626173656c08666f72747974776f02636800c11100020001000010d60018086176656e747572610a62686d732d67726f6570026e6c00c11100020001000010d600110e736c617274696261727466617374c18bc11100020001000010d6000f0161026e73076d61646475636bc136c12900010001000272a500044501c844c1470001000100000daf0004ca313b06";
+
+    #[test]
+    fn blind_probe_rejects_empty_header_with_trailing_bytes() {
+        let data = hex::decode(RADAR_FRAME_1249).expect("hex valide");
+        // Le decodeur tolerant du port 53 l'accepte...
+        assert!(DnsPacket::try_from(data.as_slice()).is_ok());
+        // ...la sonde aveugle, non.
+        assert!(!DnsPacket::is_blind_udp_match(&data));
+        // En-tete vide sans octet en trop : aucune preuve non plus.
+        assert!(!DnsPacket::is_blind_udp_match(&data[..12]));
+    }
+
+    #[test]
+    fn blind_probe_rejects_trailing_byte_after_last_section() {
+        let mut data = hex::decode(NTP_POOL_RESPONSE).expect("hex valide");
+        assert!(DnsPacket::is_blind_udp_match(&data));
+        data.push(0);
+        assert!(DnsPacket::try_from(data.as_slice()).is_ok());
+        assert!(!DnsPacket::is_blind_udp_match(&data));
+    }
+
+    /// #184 : chaque RR dont le nom est le pointeur `c0 0c` relisait le
+    /// QNAME en entier. Avec un QNAME de 16 370 labels et 2 728 RR (65 493
+    /// octets), le decodage prenait 1,7 s en release, en temps quadratique
+    /// dans la taille du message. La borne de 255 octets (RFC 1035 §3.1)
+    /// l'arrete des la question, et un QNAME de 255 octets reste accepte.
+    /// Synthetique, en plus petit : cent RR.
+    #[test]
+    fn pointers_to_a_name_longer_than_255_octets_are_rejected() {
+        let message = |labels: usize| {
+            let mut message = vec![0xbe, 0xef, 0x81, 0x80, 0, 1, 0, 100, 0, 0, 0, 0];
+            message.extend_from_slice(&[1, b'a'].repeat(labels));
+            message.extend_from_slice(&[0, 0, 1, 0, 1]);
+            for _ in 0..100 {
+                message.extend_from_slice(&[0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0]);
+            }
+            message
+        };
+
+        // 127 labels d'un octet : 255 octets avec le label racine.
+        let longest = message(127);
+        assert!(DnsPacket::is_blind_udp_match(&longest));
+        let packet = DnsPacket::try_from(longest.as_slice()).expect("QNAME de 255 octets");
+        assert_eq!(packet.answers.map(|answers| answers.len()), Some(100));
+
+        let too_long = message(128);
+        assert!(DnsPacket::try_from(too_long.as_slice()).is_err());
+        assert!(!DnsPacket::is_blind_udp_match(&too_long));
+    }
+
+    #[test]
+    fn test_dns_packet_parsing() {
+        // Example DNS packet data
+        let data = hex::decode(NTP_POOL_RESPONSE).expect("Invalid hex string");
+
+        match DnsPacket::try_from(data.as_slice()) {
+            Ok(packet) => {
+                // println!("{:?}", packet);
+                assert_eq!(packet.header.transaction_id, 0x002b);
+                assert_eq!(packet.header.flags, 0x8180);
+                assert_eq!(packet.header.counts[0], 1);
+                assert_eq!(packet.header.counts[1], 15);
+                assert_eq!(packet.header.counts[2], 6);
+                assert_eq!(packet.header.counts[3], 2);
+
+                assert_eq!(packet.queries.queries[0].name, "us.pool.ntp.org");
+
+                // 15 réponses A, noms compressés (pointeur c00c vers la question).
+                let answers = packet.answers.as_ref().expect("answers");
+                assert_eq!(answers.len(), 15);
+                assert_eq!(answers[0].name, "us.pool.ntp.org");
+                assert_eq!(answers[0].answer_type.0, 1); // A
+                assert_eq!(answers[0].answer_class.0, 1); // IN
+                assert_eq!(answers[0].ttl, 0x0d87);
+                assert_eq!(answers[0].data_length, 4);
+                assert_eq!(answers[0].address, vec![0x43, 0x81, 0x44, 0x09]);
+                assert_eq!(answers[14].address, vec![0x42, 0x73, 0x88, 0x04]);
+
+                // 6 enregistrements NS, avec compression dans le nom ET la rdata.
+                let authorities = packet.authorities.as_ref().expect("authorities");
+                assert_eq!(authorities.len(), 6);
+                assert_eq!(authorities[0].name, "POOL.ntp.org");
+                assert_eq!(authorities[0].answer_type.0, 2); // NS
+
+                // 2 additionnels (A des serveurs de noms).
+                let additionals = packet.additionals.as_ref().expect("additionals");
+                assert_eq!(additionals.len(), 2);
+                assert_eq!(additionals[0].answer_type.0, 1); // A
+                assert_eq!(additionals[0].data_length, 4);
+            }
+            Err(e) => panic!("Error parsing DNS packet: {}", e),
+        }
+    }
+
+    #[test]
+    fn test_dns_query_only_packet_has_empty_sections() {
+        // Question simple "example.com A IN", aucun record.
+        let mut data = vec![
+            0x12, 0x34, // transaction id
+            0x01, 0x00, // flags : requête standard, RD
+            0x00, 0x01, // 1 question
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 0 answer/authority/additional
+        ];
+        data.push(7);
+        data.extend_from_slice(b"example");
+        data.push(3);
+        data.extend_from_slice(b"com");
+        data.push(0);
+        data.extend_from_slice(&[0x00, 0x01, 0x00, 0x01]);
+
+        let packet = DnsPacket::try_from(data.as_slice()).unwrap();
+
+        assert_eq!(packet.queries.queries[0].name, "example.com");
+        assert!(packet.answers.is_none());
+        assert!(packet.authorities.is_none());
+        assert!(packet.additionals.is_none());
+    }
+
+    #[test]
+    fn test_dns_truncated_answer_section_is_rejected() {
+        // En-tête annonçant 1 réponse, mais section absente.
+        let mut data = vec![
+            0x12, 0x34, // transaction id
+            0x81, 0x80, // flags : réponse standard
+            0x00, 0x01, // 1 question
+            0x00, 0x01, // 1 answer annoncée
+            0x00, 0x00, 0x00, 0x00,
+        ];
+        data.push(1);
+        data.push(b'a');
+        data.push(0);
+        data.extend_from_slice(&[0x00, 0x01, 0x00, 0x01]);
+
+        let result = DnsPacket::try_from(data.as_slice());
+
+        assert!(result.is_err(), "truncated answer section must not parse");
+    }
+
+    #[test]
+    fn test_dns_packet_parsing_return_error() {
+        // Example non-DNS packet data
+        let data = hex::decode("1a030aee00001bf7000014ec51ae80b7c502034c8d0e66cbc50204ecec42ee92c50204ebcf4959e6c50204ebcf4c6e6d").expect("Invalid hex string");
+
+        match DnsPacket::try_from(data.as_slice()) {
+            Ok(_) => panic!("Expected error, but parsing succeeded"),
+            Err(e) => assert!(
+                e.to_string().contains("Invalid Z field, must be 0."),
+                "Unexpected error: {}",
+                e
+            ),
+        }
+    }
+
+    #[test]
+    fn test_ssl_packet_parsing_return_error() {
+        // Example ssl packet data
+        let data = hex::decode("8746a7014094af07a47e9b7f").expect("Invalid hex string");
+
+        match DnsPacket::try_from(data.as_slice()) {
+            Ok(_) => panic!("Expected error, but parsing succeeded"),
+            Err(e) => assert!(
+                e.to_string()
+                    .contains("required 1 more bytes at offset 12, but only 0 bytes available"),
+                "Unexpected error: {}",
+                e
+            ),
+        }
+    }
+
+    #[test]
+    fn test_rtcp_packet_parsing_return_error() {
+        // Payload RTCP en hexadécimal
+        let data = hex::decode("89cc00076f4c712d44434e53515445524d5f50494e473a3035343a3031360000")
+            .expect("Invalid hex string");
+
+        match DnsPacket::try_from(data.as_slice()) {
+            Ok(_) => panic!("Expected error, but parsing succeeded"),
+            Err(e) => assert!(
+                e.to_string()
+                    .contains("Invalid RCode, must be between 0 and 5"),
+                "Unexpected error: {}",
+                e
+            ),
+        }
+    }
+
+    #[test]
+    fn test_check_dns_minimum_size_insufficient_data() {
+        let data = vec![0; 10]; // Seulement 10 octets, donc insuffisant pour un paquet DNS
+        let result = check_dns_minimum_size(&data);
+        assert!(result.is_err());
+        if let Err(DnsPacketError::InsufficientData { expected, actual }) = result {
+            assert_eq!(expected, 12);
+            assert_eq!(actual, 10);
+        } else {
+            panic!(
+                "Expected DnsPacketError::InsufficientData, but got {:?}",
+                result
+            );
+        }
+    }
+
+    #[test]
+    fn test_check_dns_minimum_size_sufficient_data() {
+        let data = vec![0; 12]; // Exactement 12 octets, ce qui est suffisant
+        let result = check_dns_minimum_size(&data);
+        assert!(result.is_ok());
+    }
+
+    // Trame 1 (originale 1) :
+    // pcaps_exemple/protocols/mdns_llmnr_ssdp/mdns_announcement.pcapng —
+    // annonce mDNS non sollicitee (RFC 6762 §6), question vide.
+    const MDNS_ANNOUNCEMENT_EMPTY_QUESTION: &[u8] = &[
+        0x00, 0x00, 0x84, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x07, b'_', b'b',
+        b'r', b'o', b'w', b's', b'e', 0x05, b'_', b'm', b'd', b'n', b's', 0x04, b'_', b'u', b'd',
+        b'p', 0x05, b'l', b'o', b'c', b'a', b'l', 0x00, 0x00, 0x0c, 0x00, 0x01, 0x00, 0x00, 0x1c,
+        0x20, 0x00, 0x0b, 0x05, b'a', b'p', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00,
+    ];
+
+    #[test]
+    fn test_dns_strict_try_from_rejects_empty_question_with_answers() {
+        // Un DNS classique n'a jamais de reponse sans la question qu'elle
+        // repond : c'est un signal utilise pour la classification a l'aveugle.
+        assert!(DnsPacket::try_from(MDNS_ANNOUNCEMENT_EMPTY_QUESTION).is_err());
+    }
+
+    #[test]
+    fn test_dns_try_from_mdns_accepts_empty_question_with_answers() {
+        let packet = DnsPacket::try_from_mdns(MDNS_ANNOUNCEMENT_EMPTY_QUESTION)
+            .expect("mDNS announcement with an empty question must parse");
+
+        assert_eq!(packet.header.counts, [0, 1, 0, 0]);
+        assert!(packet.queries.queries.is_empty());
+
+        let answers = packet.answers.as_ref().expect("answers");
+        assert_eq!(answers.len(), 1);
+        assert_eq!(answers[0].name, "_browse._mdns._udp.local");
+        assert_eq!(answers[0].answer_type.0, 12); // PTR
+        assert_eq!(answers[0].answer_class.0, 1); // IN
+    }
+
+    #[test]
+    fn test_mdns_query_decodes_qu_bit_without_changing_classic_dns() {
+        let packet = [
+            0x00, 0x00, // transaction id
+            0x00, 0x00, // standard query
+            0x00, 0x01, // one question
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // no records
+            0x05, b'l', b'o', b'c', b'a', b'l', 0x00, // local
+            0x00, 0x01, // A
+            0x80, 0x01, // QU + IN
+        ];
+
+        let mdns = DnsPacket::try_from_mdns(&packet).expect("valid mDNS QU question");
+        assert_eq!(mdns.queries.queries[0].qclass.0, 1);
+
+        let dns = DnsPacket::try_from(packet.as_slice()).expect("valid classic DNS question");
+        assert_eq!(dns.queries.queries[0].qclass.0, 0x8001);
+    }
+
+    #[test]
+    fn test_mdns_answer_strips_cache_flush_bit_from_class() {
+        let packet = [
+            0x00, 0x00, // transaction id
+            0x84, 0x00, // authoritative standard response
+            0x00, 0x00, // no question (unsolicited announcement)
+            0x00, 0x01, // one answer
+            0x00, 0x00, 0x00, 0x00, // no authority/additional records
+            0x00, // root name
+            0x00, 0x01, // A
+            0x80, 0x01, // cache-flush + IN
+            0x00, 0x00, 0x00, 0x78, // TTL 120
+            0x00, 0x04, 192, 0, 2, 1,
+        ];
+
+        let mdns = DnsPacket::try_from_mdns(&packet).expect("valid mDNS unique answer");
+        let answer = &mdns.answers.as_ref().expect("answer")[0];
+
+        assert_eq!(answer.answer_class.0, 1);
+    }
+
+    /// Trame 2 de `pcaps_exemple/protocols/dns/dns_query_nonexistent.pcapng` :
+    /// reponse NXDOMAIN d'un resolveur recursif (rcode 3, aa=0, une SOA en
+    /// autorite). L'ancienne exigence aa=1 sur rcode 3 la rejetait.
+    #[test]
+    fn recursive_resolver_nxdomain_response_is_accepted() {
+        let bytes = hex::decode(concat!(
+            "f23f81830001000000010000173132343938323833373139333031333832393731",
+            "393734036e65740000010001c0240006000100000383003d01610c67746c642d73",
+            "657276657273c024056e73746c640c766572697369676e2d67727303636f6d0058",
+            "de667e000007080000038400093a8000015180"
+        ))
+        .expect("fixture");
+
+        let packet = DnsPacket::try_from(bytes.as_slice()).expect("real NXDOMAIN decodes");
+        assert_eq!(packet.header.counts, [1, 0, 1, 0]);
+        let authorities = packet.authorities.expect("SOA in authority");
+        assert_eq!(authorities.len(), 1);
+    }
+
+    /// Trame 6 de `pcaps_exemple/protocols/dns/dns_tcp.pcapng` : requete ANY
+    /// `ripe.net` sur TCP, prefixee de sa longueur (RFC 1035 §4.2.2).
+    #[test]
+    fn tcp_length_prefixed_message_is_decoded() {
+        let bytes = hex::decode("001ab4c3010000010000000000000472697065036e65740000ff0001")
+            .expect("fixture");
+
+        let packet = DnsPacket::try_from_tcp(bytes.as_slice()).expect("real DNS/TCP decodes");
+        assert_eq!(packet.header.counts, [1, 0, 0, 0]);
+
+        // Sans le prefixe, la forme datagramme refuse ces memes octets : les
+        // deux formes ne se recouvrent pas.
+        assert!(DnsPacket::try_from(bytes.as_slice()).is_err());
+
+        // Prefixe annoncant plus que le segment : refus propre.
+        assert!(DnsPacket::try_from_tcp(&bytes[..bytes.len() - 1]).is_err());
+    }
+}

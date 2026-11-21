@@ -1,0 +1,205 @@
+// Copyright (c) 2024 Cyprien Avico <avicocyprien@yahoo.com>
+//
+// Licensed under the MIT License <LICENSE-MIT or http://opensource.org/licenses/MIT>.
+// This file may not be copied, modified, or distributed except according to those terms.
+
+// Un parseur d'octets hostiles ne doit jamais faire tomber son hote : pas de
+// panic dans le code de production. Les rares sites justifies portent un
+// #[expect] motive ; les tests (cfg(test)) restent libres. La CI passe avec
+// -D warnings, ce qui rend ces lints bloquants. `indexing_slicing` et
+// `arithmetic_side_effects` ne sont volontairement pas actives : plus de
+// 1000 acces idiomatiques (index apres controle de longueur explicite), dont
+// l'absence de panic est verifiee par les cibles de fuzz de `fuzz/` (le
+// nombre n'est plus ecrit ici : il a deja derive une fois). Un decodeur
+// applicatif y est atteint par sa cible `parse_<protocole>` ou, quand la
+// mesure montre qu'elle n'y ajoute rien, par le dispatch que fuzzent
+// `parse_application`, `parse_packetflow` et `policy_dispatch` ; la
+// couverture mesuree decodeur par decodeur est dans l'issue #272.
+// Un cast `as` qui peut tronquer est refuse de meme (#273) : une longueur
+// lue sur le fil se convertit par `try_from`, et un cast voulu porte son
+// #[expect].
+// docs.rs marque ce qui demande une feature (`rules`, #325).
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(
+    not(test),
+    warn(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::cast_possible_truncation
+    )
+)]
+
+//! # Packet Parser
+//!
+//! **Packet Parser** is a modular Rust library designed to analyze and decode raw network packets.
+//!
+//! This crate allows processing different layers of a network packet, starting from the data link layer
+//! (Ethernet II) and moving down through the network, transport, and application layers.
+//!
+//! This page is the API reference. How the crate is designed, layer by layer, is
+//! explained in the [Packet Parser book](https://akmot9.github.io/packet-parser-book/).
+//!
+//! ## Features
+//! - **Multi-layer analysis**: link, internet, transport and application layers.
+//! - **Zero-copy**: [`PacketFlow`] borrows the input buffer; no payload is copied.
+//! - **Fail-closed on the link layer**: the LINKTYPE is supplied by the caller,
+//!   never guessed from the bytes.
+//! - **Fail-soft above it**: an unsupported or malformed upper layer leaves that
+//!   layer `None` instead of failing the whole parse.
+//! - **Modular architecture**: easily extendable to support new protocols.
+//!
+//! ## Usage
+//!
+//! [`fn@parse`] is the entry point. It takes the LINKTYPE of the capture — the
+//! value stored in the PCAP/PCAPNG file — and exactly one packet, without any
+//! record header.
+//!
+//! ```rust
+//! use packet_parser::{LinkType, parse};
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let frame = hex::decode(
+//!     "feaa81e86d1efeaa818ec864080045500034000000003d06206b36e6700d\
+//!      ac140a0201bbc1087d7f02aa4e2b998e80100081748300000101080a9373\
+//!      c9c207ef14e3",
+//! )?;
+//!
+//! let flow = parse(LinkType::ETHERNET, &frame)?;
+//!
+//! println!("L2: {}", flow.data_link);
+//!
+//! if let Some(internet) = &flow.internet {
+//!     println!("L3: {} {:?} -> {:?}",
+//!         internet.protocol_name, internet.source, internet.destination);
+//! }
+//! if let Some(transport) = &flow.transport {
+//!     println!("L4: {:?} {:?} -> {:?}",
+//!         transport.protocol, transport.source_port, transport.destination_port);
+//! }
+//! if let Some(application) = &flow.application {
+//!     println!("L7: {}", application.protocol.label());
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! Use [`is_supported`] to check a LINKTYPE before feeding a whole capture:
+//!
+//! ```rust
+//! use packet_parser::{LinkType, is_supported};
+//!
+//! assert!(is_supported(LinkType::ETHERNET));
+//! assert!(is_supported(LinkType::LINUX_SLL));
+//! assert!(!is_supported(LinkType(0xdead)));
+//! ```
+//!
+//! ### Do not guess the LINKTYPE
+//!
+//! [`PacketFlow::try_from`] and [`DataLink::try_from`] accept a bare `&[u8]` and
+//! **assume [`LinkType::ETHERNET`]**. They are kept for compatibility and will be
+//! removed in a future major release.
+//!
+//! Feeding them a non-Ethernet capture does not fail — it silently produces
+//! wrong data. A `LINKTYPE_LINUX_SLL` frame (what a capture on the `any`
+//! interface yields) has its 16 cooked-header bytes reinterpreted as an Ethernet
+//! header, so the parse returns `Ok` with fabricated MAC addresses,
+//! `internet: None` and `corrupted: None`. Nothing signals the mistake.
+//!
+//! Always pass the LINKTYPE the capture actually declares.
+//!
+//! ## What a parse returns
+//!
+//! ```text
+//! PacketFlow<'a>
+//! ├── data_link:   LinkLayer<'a>              (mandatory — Ethernet, SLL, SLL2, RAW,
+//! │                                            802.3br mPacket express)
+//! ├── internet:    Option<Internet<'a>>       source / destination / protocol_name
+//! │                                           / payload_protocol / payload / details
+//! ├── transport:   Option<Transport<'a>>      protocol / source_port / destination_port
+//! │                                           / payload / details
+//! ├── application: Option<Application>        protocol: ApplicationProtocol
+//! ├── inner:       Option<Box<PacketFlow<'a>>>  packet carried inside a tunnel
+//! └── corrupted:   Option<CorruptedLayer>     set when a recognized layer held
+//!                                             invalid bytes
+//! ```
+//!
+//! The application layer is a **classification, not a decode**: it reports the
+//! detected protocol name, not a parsed message.
+//!
+//! ## Reading the outcome
+//!
+//! Only the link layer can fail the parse: an unsupported LINKTYPE yields
+//! `Err(ParseError)`. Above it, three outcomes are distinct and must not be
+//! confused:
+//!
+//! - **layer present** — it was recognized and decoded;
+//! - **layer `None`, `corrupted` `None`** — the protocol is not supported, and
+//!   nothing above it could be reached;
+//! - **layer `None`, `corrupted` `Some`** — the layer *was* recognized but
+//!   carried invalid bytes. [`CorruptedLayer`] names which one.
+//!
+//! ## Owned flows
+//!
+//! [`PacketFlow`] borrows the input buffer. To store a flow, send it across
+//! threads or serialize it, convert it with [`PacketFlow::to_owned_flow`], which
+//! returns an [`owned::PacketFlowOwned`]. Note that the owned form drops the
+//! payloads and the per-layer `details`.
+
+/// Validation and extraction rules used by the parsers (crate-internal).
+pub(crate) mod checks;
+
+/// Opt-in verification of IPv4, TCP and UDP checksums.
+pub mod checksum;
+
+/// Module for converting packet formats.
+pub mod convert;
+
+pub mod owned;
+
+mod link_type;
+pub use link_type::LinkType;
+
+/// Module for displaying parsed data (internal use).
+mod displays;
+
+/// Centralized error management for the crate. Public so consumers can name
+/// and match the per-layer error types (e.g.
+/// `errors::internet::InternetError`, `errors::transport::TransportError`).
+pub mod errors;
+pub use errors::{LinkLayerError, ParseError};
+
+/// Main module for packet analysis.
+pub mod parse;
+pub use parse::parse_timed;
+pub use parse::{
+    DecodeAsProtocol, ParseConfig, classify_payload, classify_payload_with, is_supported, parse,
+    parse_with,
+};
+
+pub use parse::application::Application;
+pub use parse::application::custom::{
+    ApplicationParser, CustomTransports, ParserRegistrationError, PayloadContext,
+};
+pub use parse::application::protocol::{ApplicationProtocol, UnknownApplicationLabel};
+#[cfg(feature = "rules")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rules")))]
+pub use parse::application::rules::{RuleSet, RulesError};
+/// Exports data link layer parsing functionality.
+pub use parse::data_link::DataLink;
+pub use parse::data_link::mac_address::MacAddress;
+pub use parse::internet::dscp_ecn::{Dscp, Ecn};
+pub use parse::internet::ip_type::IpType;
+pub use parse::internet::{Internet, InternetDetails};
+pub use parse::link_layer::{
+    Ieee80211Link, LinkLayer, LinkLayerKind, LinuxArphrdType, LinuxCookedPacketType, LinuxSll2Link,
+    LinuxSllLink, NetworkProtocol, RawIpLink,
+};
+pub use parse::transport::protocols::TransportProtocol;
+pub use parse::transport::{Transport, TransportDetails};
+
+/// Exports data link layer parsing functionality.
+pub use parse::PacketFlow;
+pub use parse::{CorruptedLayer, CorruptedLayerError, CorruptedLayerKind};
+
+pub mod timing;

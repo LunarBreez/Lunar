@@ -1,0 +1,300 @@
+// Copyright (c) 2026 Cyprien Avico avicocyprien@yahoo.com
+//
+// Licensed under the MIT License <LICENSE-MIT or http://opensource.org/licenses/MIT>.
+// This file may not be copied, modified, or distributed except according to those terms.
+
+use std::convert::TryFrom;
+
+use crate::{
+    checks::transport::tcp::{
+        validate_tcp_data_offset_available, validate_tcp_data_offset_words, validate_tcp_flags,
+        validate_tcp_min_length, validate_tcp_reserved,
+    },
+    errors::transport::tcp::TcpError,
+};
+
+/// Represents a TCP header
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct TcpHeader<'a> {
+    pub source_port: u16,
+    pub destination_port: u16,
+    pub sequence_number: u32,
+    pub acknowledgment_number: u32,
+    pub data_offset: u8, // 4 bits
+    pub reserved: u8,    // 3 bits
+    pub ns: bool,        // 1 bit
+    pub cwr: bool,       // 1 bit
+    pub ece: bool,       // 1 bit
+    pub urg: bool,       // 1 bit
+    pub ack: bool,       // 1 bit
+    pub psh: bool,       // 1 bit
+    pub rst: bool,       // 1 bit
+    pub syn: bool,       // 1 bit
+    pub fin: bool,       // 1 bit
+    pub window_size: u16,
+    pub checksum: u16,
+    pub urgent_pointer: u16,
+    pub options: &'a [u8],
+}
+
+/// TCP Packet
+///
+/// ```mermaid
+/// ---
+/// title: TcpPacket
+/// ---
+/// packet-beta
+/// 0-15: "Source Port u16"
+/// 16-31: "Destination Port u16"
+/// 32-63: "Sequence Number u32"
+/// 64-95: "Acknowledgment Number u32"
+/// 96-99: "Data Offset u4"
+/// 100-103: "Reserved/NS u4"
+/// 104-111: "Flags u8"
+/// 112-127: "Window Size u16"
+/// 128-143: "Checksum u16"
+/// 144-159: "Urgent Pointer u16"
+/// 160-191: "Options / Payload variable"
+/// ```
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct TcpPacket<'a> {
+    pub header: TcpHeader<'a>,
+    pub payload: &'a [u8],
+}
+
+impl<'a> TryFrom<&'a [u8]> for TcpPacket<'a> {
+    type Error = TcpError;
+
+    fn try_from(packet: &'a [u8]) -> Result<Self, Self::Error> {
+        validate_tcp_min_length(packet)?;
+
+        let data_offset_words = packet[12] >> 4;
+        validate_tcp_data_offset_words(data_offset_words)?;
+
+        let data_offset = (data_offset_words as usize) * 4;
+        validate_tcp_data_offset_available(packet.len(), data_offset)?;
+
+        // Bits reserves et drapeaux incoherents sont des anomalies
+        // semantiques : l'en-tete reste lisible, le paquet est decode et
+        // l'anomalie se lit via `TcpPacket::anomaly` (#24).
+        let reserved = (packet[12] >> 1) & 0x07;
+        let flags = packet[13];
+
+        let header = TcpHeader {
+            source_port: u16::from_be_bytes([packet[0], packet[1]]),
+            destination_port: u16::from_be_bytes([packet[2], packet[3]]),
+            sequence_number: u32::from_be_bytes([packet[4], packet[5], packet[6], packet[7]]),
+            acknowledgment_number: u32::from_be_bytes([
+                packet[8], packet[9], packet[10], packet[11],
+            ]),
+            data_offset: data_offset_words,
+            reserved,
+            ns: (packet[12] & 0x01) != 0,
+            cwr: (flags & 0x80) != 0,
+            ece: (flags & 0x40) != 0,
+            urg: (flags & 0x20) != 0,
+            ack: (flags & 0x10) != 0,
+            psh: (flags & 0x08) != 0,
+            rst: (flags & 0x04) != 0,
+            syn: (flags & 0x02) != 0,
+            fin: (flags & 0x01) != 0,
+            window_size: u16::from_be_bytes([packet[14], packet[15]]),
+            checksum: u16::from_be_bytes([packet[16], packet[17]]),
+            urgent_pointer: u16::from_be_bytes([packet[18], packet[19]]),
+            options: if data_offset > 20 {
+                &packet[20..data_offset]
+            } else {
+                &[]
+            },
+        };
+
+        let payload = &packet[data_offset..];
+
+        Ok(TcpPacket { header, payload })
+    }
+}
+
+impl TcpPacket<'_> {
+    /// Test rapide : cet en-tete porte-t-il une anomalie semantique ? Voir
+    /// [`TcpPacket::anomaly`] pour la qualifier.
+    #[inline(always)]
+    pub fn is_anomalous(&self) -> bool {
+        self.header.reserved != 0 || (self.header.syn && self.header.fin)
+    }
+
+    /// Anomalie semantique d'un en-tete par ailleurs lisible : bits reserves
+    /// non nuls ([`TcpError::ReservedBitsSet`]) ou SYN et FIN ensemble
+    /// ([`TcpError::InvalidFlags`]), combinaison classique de scan et
+    /// d'evasion.
+    ///
+    /// Le decodeur ne rejette pas ces segments : les faire disparaitre
+    /// privait l'appelant des ports, donc de toute correlation de flux, au
+    /// moment precis ou le paquet est interessant. [`crate::PacketFlow`]
+    /// garde la couche transport et rapporte l'anomalie dans `corrupted`.
+    pub fn anomaly(&self) -> Option<TcpError> {
+        let header = &self.header;
+        let flags = u8::from(header.fin)
+            | u8::from(header.syn) << 1
+            | u8::from(header.rst) << 2
+            | u8::from(header.psh) << 3
+            | u8::from(header.ack) << 4
+            | u8::from(header.urg) << 5
+            | u8::from(header.ece) << 6
+            | u8::from(header.cwr) << 7;
+        validate_tcp_reserved(header.reserved)
+            .and_then(|()| validate_tcp_flags(flags))
+            .err()
+    }
+}
+
+#[cfg(test)]
+mod anomaly_tests {
+    use super::*;
+
+    /// `is_anomalous` est le raccourci du chemin chaud : il doit dire
+    /// exactement la meme chose que `anomaly().is_some()`, pour les 256
+    /// octets de flags et les 8 valeurs de bits reserves.
+    #[test]
+    fn fast_check_agrees_with_the_qualified_anomaly_on_every_header() {
+        for flags in 0u8..=u8::MAX {
+            for reserved in 0u8..8 {
+                let mut segment = [0u8; 20];
+                segment[12] = 0x50 | (reserved << 1);
+                segment[13] = flags;
+                let packet = TcpPacket::try_from(&segment[..]).expect("en-tete lisible");
+                assert_eq!(
+                    packet.is_anomalous(),
+                    packet.anomaly().is_some(),
+                    "flags {flags:#04x}, reserves {reserved:#05b}"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tcp_packet_parsing() {
+        // A simple TCP packet with no options
+        let tcp_packet = [
+            // Source port (1234)
+            0x04, 0xD2, // Destination port (80)
+            0x00, 0x50, // Sequence number (1)
+            0x00, 0x00, 0x00, 0x01, // Acknowledgment number (0)
+            0x00, 0x00, 0x00, 0x00,
+            // Data offset (5 * 4 = 20 bytes), Reserved, NS=0, CWR=0, ECE=0, URG=0, ACK=1, PSH=0, RST=0, SYN=1, FIN=0
+            0x50, 0x12, // Window size (8192)
+            0x20, 0x00, // Checksum (0 for test)
+            0x00, 0x00, // Urgent pointer (0)
+            0x00, 0x00, // Payload (4 bytes)
+            0x01, 0x02, 0x03, 0x04,
+        ];
+
+        let tcp = TcpPacket::try_from(&tcp_packet[..]).unwrap();
+
+        assert_eq!(tcp.header.source_port, 1234);
+        assert_eq!(tcp.header.destination_port, 80);
+        assert_eq!(tcp.header.sequence_number, 1);
+        assert_eq!(tcp.header.acknowledgment_number, 0);
+        assert_eq!(tcp.header.data_offset, 5);
+        assert!(tcp.header.ack);
+        assert!(tcp.header.syn);
+        assert!(!tcp.header.fin);
+        assert_eq!(tcp.header.window_size, 8192);
+        assert_eq!(tcp.header.checksum, 0);
+        assert_eq!(tcp.header.urgent_pointer, 0);
+        assert!(tcp.header.options.is_empty());
+        assert_eq!(tcp.payload, &[0x01, 0x02, 0x03, 0x04]);
+    }
+
+    #[test]
+    fn test_tcp_rst_ack_zero_window_is_valid() {
+        let packet = [
+            0xED, 0x11, 0x01, 0xF6, 0x4F, 0x2E, 0xE0, 0xFC, 0x7C, 0x80, 0x69, 0xB6, 0x50, 0x14,
+            0x00, 0x00, 0x1B, 0x1D, 0x00, 0x00,
+        ];
+
+        let tcp = TcpPacket::try_from(&packet[..]).unwrap();
+
+        assert_eq!(tcp.header.source_port, 60689);
+        assert_eq!(tcp.header.destination_port, 502);
+        assert_eq!(tcp.header.data_offset, 5);
+        assert!(tcp.header.ack);
+        assert!(tcp.header.rst);
+        assert!(!tcp.header.syn);
+        assert!(!tcp.header.fin);
+        assert_eq!(tcp.header.window_size, 0);
+        assert!(tcp.payload.is_empty());
+    }
+
+    #[test]
+    fn test_tcp_packet_too_short() {
+        // Only 19 bytes (minimum is 20)
+        let short_packet = [0u8; 19];
+        let result = TcpPacket::try_from(&short_packet[..]);
+        assert!(matches!(result, Err(TcpError::PacketTooShort)));
+    }
+
+    #[test]
+    fn test_tcp_invalid_data_offset() {
+        // Create a packet with invalid data offset (1 * 4 = 4 bytes, which is less than minimum 20)
+        let mut packet = [0u8; 20];
+        packet[12] = 0x10; // Data offset = 1 (4 bytes)
+        let result = TcpPacket::try_from(&packet[..]);
+        assert!(matches!(result, Err(TcpError::InvalidDataOffset(1))));
+    }
+
+    #[test]
+    fn test_invalid_tcp_packet_form_icmp() {
+        // This is an invalid TCP packet that should fail parsing
+        let hex_str = "85001c45000000000101a2afb2c15c03";
+        let packet_data = hex::decode(hex_str).expect("Failed to decode hex string");
+
+        // The packet is too short (15 bytes) to be a valid TCP header (minimum 20 bytes)
+        let result = TcpPacket::try_from(packet_data.as_slice());
+        assert!(matches!(result, Err(TcpError::PacketTooShort)));
+    }
+
+    #[test]
+    fn test_invalid_tcp_packet_form_icmp_with_data() {
+        // This is an invalid TCP packet that should fail parsing
+        let hex_str = "c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f7071727374757677";
+        let packet_data = hex::decode(hex_str).expect("Failed to decode hex string");
+
+        // Des donnees ICMP lues comme du TCP : l'en-tete est structurellement
+        // lisible (data offset 13 mots, dans le buffer), mais ses bits
+        // reserves sont non nuls — decode, et signale comme anomalie.
+        let packet = TcpPacket::try_from(packet_data.as_slice()).expect("en-tete lisible");
+        assert!(matches!(
+            packet.anomaly(),
+            Some(TcpError::ReservedBitsSet { bits: 2 })
+        ));
+    }
+
+    #[test]
+    fn syn_fin_is_decoded_and_reported_as_an_anomaly() {
+        let mut segment = [0u8; 20];
+        segment[0..2].copy_from_slice(&12345u16.to_be_bytes());
+        segment[2..4].copy_from_slice(&443u16.to_be_bytes());
+        segment[12] = 0x50; // data offset 5
+        segment[13] = 0x03; // SYN | FIN
+
+        let packet = TcpPacket::try_from(&segment[..]).expect("en-tete lisible");
+        assert_eq!(packet.header.source_port, 12345);
+        assert!(packet.header.syn && packet.header.fin);
+        assert!(matches!(
+            packet.anomaly(),
+            Some(TcpError::InvalidFlags { flags: 0x03 })
+        ));
+
+        // SYN seul : aucun signalement.
+        segment[13] = 0x02;
+        let packet = TcpPacket::try_from(&segment[..]).expect("en-tete lisible");
+        assert!(packet.anomaly().is_none());
+    }
+}

@@ -200,12 +200,32 @@ cosign verify-blob lunar-0.1.0-x86_64-linux-gnu.tar.gz \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
+## Dépendances vendorisées
+
+Les sources de toutes les dépendances sont commitées dans `vendor/`, aux
+versions des `Cargo.lock` du produit et du crate de fuzzing, pour Linux et
+Windows. `.cargo/config.toml` y redirige crates.io : développement, CI et
+release compilent depuis le dépôt, sans rien télécharger, et une mise à jour de
+dépendance se relit comme n'importe quel diff.
+
+```sh
+cargo build --release --locked --offline      # un clone suffit, sans réseau
+script/vendor.sh --update -p packet_parser    # mettre à jour une dépendance
+script/vendor.sh --update --workspace         # après retouche d'un Cargo.toml
+script/vendor.sh --check                      # vendor/ couvre-t-il les Cargo.lock ?
+script/vendor.sh --verify                     # vendor/ identique à crates.io ? (CI)
+```
+
+`cargo update` seul ne voit plus crates.io : passer par `script/vendor.sh
+--update`, qui réaligne aussi le `Cargo.lock` du fuzzing. La CI régénère
+`vendor/` depuis crates.io et refuse tout écart avec ce qui est commité. Les
+sources vendorisées ne sont pas modifiées à la main.
+
 ## Hors périmètre
 
 - paquets `.deb` et NSIS ;
 - signature de code (Authenticode, signature hors ligne) ;
-- build reproductible ;
-- vendoring hors ligne.
+- build reproductible.
 
 Le `Cargo.lock` est commité. libc 0.2.186, tokio 1.53.3 et mio 1.2.1 y sont
 figés volontairement : `xattr` 0.2.3, tiré par gpui, ne compile plus avec

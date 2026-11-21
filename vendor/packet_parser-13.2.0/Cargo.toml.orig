@@ -1,0 +1,103 @@
+[package]
+name = "packet_parser"
+version = "13.2.0"
+edition = "2024"
+# MSRV verifiee en CI : let-chains et u{n}::is_multiple_of exigent 1.88.
+rust-version = "1.88"
+authors = ["Cyprien Avico avicocyprien@yahoo.com"]
+description = "A powerful and modular Rust crate for network packet parsing."
+license = "MIT"
+repository = "https://github.com/Akmot9/Packet-parser"
+categories = ["network-programming", "parsing", "development-tools"]
+readme = "README.md"
+homepage = "https://akmot9.github.io/packet-parser-book/"
+documentation = "https://docs.rs/packet_parser"
+keywords = ["network", "packets", "parser", "cybersecurity", "Rust"]
+# Liste d'inclusion plutôt que d'exclusion : fail-closed par construction.
+# Un `exclude` oublie tout nouveau fichier de travail (.DS_Store, notes de
+# sprint, rapports d'audit) et l'embarque dans chaque release crates.io.
+# Les motifs suivent la sémantique gitignore : un chemin non ancré matche a
+# toute profondeur (`README.md` attraperait `pcaps_exemple/README.md`), d'ou
+# le `/` initial sur les fichiers de racine.
+include = [
+    "/src/**",
+    "/examples/**",
+    "/images/packet_parser.png", # référencée par le README
+    "/images/perf_by_version.svg", # idem, regeneree par tools/verbench
+    "/README.md",
+    "/README-fr.md",
+    "/CHANGELOG.md",
+    # Le CHANGELOG de la 11.0.0 y renvoie a chaque rupture : sans lui, sept
+    # references mortes pour qui lit la crate depuis crates.io.
+    "/MIGRATION-11.md",
+    # Meme raison : le CHANGELOG y renvoie des l'annonce d'un retrait, donc
+    # avant que la 12.0 existe (#219).
+    "/MIGRATION-12.md",
+    # La 13.0 se construit sur main : son guide part dans l'archive des la
+    # premiere rupture (#275).
+    "/MIGRATION-13.md",
+    "/LICENSE.md",
+    # L'en-tete de rustdoc qui dessine les schemas mermaid : docs.rs construit
+    # la doc depuis l'archive publiee, il doit donc y etre (#215).
+    "/docs/rustdoc/mermaid.html",
+]
+
+# docs.rs dessine les schemas ```mermaid packet-beta de la doc (#215). En
+# local : `cargo doc-mermaid` (alias de .cargo/config.toml).
+[package.metadata.docs.rs]
+rustdoc-args = ["--html-in-header", "docs/rustdoc/mermaid.html"]
+# La feature `rules` (#325) est documentee sur docs.rs, marquee comme telle.
+all-features = true
+
+
+[dependencies]
+thiserror = "2.0.18"
+serde = { version = "1.0.228", features = ["derive"] }
+# Feature `rules` seulement (#325) : lire les regles TOML. Sans les features
+# par defaut : ni ecriture (`display`) ni conservation de l'ordre. La limite
+# de recursion du parseur reste active (pas de `unbounded`).
+toml = { version = "1.2.1", optional = true, default-features = false, features = ["std", "serde", "parse"] }
+
+# Volontairement sans `pcap` ni `pnet` : leurs bindings natifs (libpcap,
+# Npcap sur Windows) empechaient tests et exemples de compiler hors Linux.
+# `pcap-file` (Rust pur) lit les captures partout, voir examples/scan_pcaps.rs.
+# Dependance de developpement seulement : la bibliotheque ne s'en sert plus,
+# `Packet::packet_to_pcap` ecrit le format lui-meme (#271).
+[dev-dependencies]
+hex = "0.4.3"
+pcap-file = "2.0.0"
+serde_json = "1.0.150"
+
+[workspace]
+# La crate est seule dans son workspace (#223). tools/lab : l'etabli (bench,
+# ingestion, capture live), avec son propre workspace et son Cargo.lock ;
+# verbench : Cargo.toml genere par run.sh ; fuzz : cargo-fuzz et nightly ;
+# benches : criterion et CodSpeed (#214) ; plugin : le kit des parseurs
+# charges a l'execution (#319), seul endroit du depot qui ecrit de l'unsafe.
+exclude = ["benches", "tools/lab", "tools/verbench", "fuzz", "plugin"]
+
+[profile.release]
+opt-level = 3         # Highest speed optimization
+lto = "fat"           # Link Time Optimization for best performance
+codegen-units = 1     # Best for performance (slower build)
+panic = "abort"       # Optional: slightly faster, smaller
+strip = false         # Keep symbols if you want better profiling/debugging
+incremental = false   # Ensures full optimization
+debug = false         # No debug info in release
+rpath = false         # No runtime path in binary
+
+[features]
+default = []
+# Additive : l'API est la meme avec ou sans (voir src/timing/mod.rs).
+parse_timing = []
+# Regles TOML : des parseurs ajoutes declaratifs, sans code (#325).
+rules = ["dep:toml"]
+
+# Outil local de mise au point d'un fichier de regles (#325).
+[[example]]
+name = "rules_check"
+required-features = ["rules"]
+
+[lints.rust]
+# `docsrs` : pose par docs.rs, marque la feature `rules` dans la doc.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(docsrs)"] }
