@@ -203,8 +203,11 @@ cosign verify-blob lunar-0.1.0-x86_64-linux-gnu.tar.gz \
 ## Dépendances vendorisées
 
 Les sources de toutes les dépendances sont commitées dans `vendor/`, aux
-versions des `Cargo.lock` du produit et du crate de fuzzing, pour Linux et
-Windows. `.cargo/config.toml` y redirige crates.io : développement, CI et
+versions des `Cargo.lock` du produit et du crate de fuzzing, pour les deux
+cibles livrées : Linux x86_64 (Ubuntu 22.04) et Windows 10/11 x86_64 (MSVC).
+Les crates qu'aucune de ces cibles ne demande (macOS, WebAssembly, Windows GNU
+ou 32 bits…) sont réduits à leur `Cargo.toml` : ni leurs sources ni leurs
+binaires précompilés n'entrent dans le dépôt. `.cargo/config.toml` y redirige crates.io : développement, CI et
 release compilent depuis le dépôt, sans rien télécharger, et une mise à jour de
 dépendance se relit comme n'importe quel diff.
 
