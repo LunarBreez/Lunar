@@ -42,7 +42,7 @@ ttf-parser = "0.25.1"
 [dev-dependencies]
 tempfile = "3.27.0"
 # Trames réelles parsées dans les essais du journal de trames.
-packet_parser = "11.8.2"
+packet_parser = "13.2.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 x11rb = "0.13"

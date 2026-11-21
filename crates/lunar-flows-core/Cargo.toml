@@ -26,7 +26,7 @@ calamine = { version = "=0.38.0", default-features = false, features = ["dates"]
 chrono = "0.4.45"
 csv = "1.4.0"
 log = "0.4.33"
-packet_parser = "11.8.2"
+packet_parser = "13.2.0"
 pcap = { version = "2.4.0", optional = true }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2.0.19"

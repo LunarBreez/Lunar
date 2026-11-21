@@ -3333,6 +3333,16 @@
    "corba"
   ],
   [
+   "javarmi",
+   "javarmi",
+   "rmi",
+   "jrmp"
+  ],
+  [
+   "sip",
+   "sip"
+  ],
+  [
    "netbios",
    "netbios",
    "nbns",
@@ -3415,7 +3425,8 @@
   [
    "modbustcp",
    "modbus",
-   "modbustcp"
+   "modbustcp",
+   "modbusudp"
   ],
   [
    "umas",

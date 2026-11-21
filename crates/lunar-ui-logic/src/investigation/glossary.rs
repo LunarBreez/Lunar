@@ -369,6 +369,18 @@ pub static GLOSSARY: &[GlossaryEntry] = &[
         definition: "General Inter-ORB Protocol : transport de CORBA pour les objets distribués.",
     },
     GlossaryEntry {
+        term: "Java RMI",
+        aliases: &["javarmi", "rmi", "jrmp"],
+        category: GlossaryCategory::ApplicationIt,
+        definition: "Java Remote Method Invocation : appel de méthodes entre machines virtuelles Java (registre sur TCP 1099 par défaut). Les objets échangés sont sérialisés, en clair.",
+    },
+    GlossaryEntry {
+        term: "SIP",
+        aliases: &["sip"],
+        category: GlossaryCategory::ApplicationIt,
+        definition: "Session Initiation Protocol (RFC 3261) : signalisation des appels de téléphonie et de visioconférence sur IP (port 5060, UDP ou TCP). Il établit et termine les appels ; la voix elle-même passe par un autre flux. En clair : numéros appelés et identifiants sont lisibles.",
+    },
+    GlossaryEntry {
         term: "NetBIOS",
         aliases: &["netbios", "nbns", "nbss", "nbt"],
         category: GlossaryCategory::ApplicationIt,
@@ -475,9 +487,9 @@ pub static GLOSSARY: &[GlossaryEntry] = &[
     // ---- Application OT/ICS ------------------------------------------------
     GlossaryEntry {
         term: "Modbus/TCP",
-        aliases: &["modbus", "modbustcp"],
+        aliases: &["modbus", "modbustcp", "modbusudp"],
         category: GlossaryCategory::ApplicationOtIcs,
-        definition: "Protocole industriel très répandu (port 502) pour lire/écrire les registres d'un automate. Simple, sans authentification native.",
+        definition: "Protocole industriel très répandu (port 502) pour lire/écrire les registres d'un automate. Simple, sans authentification native. La même enveloppe circule parfois sur UDP, hors spécification : elle est alors étiquetée ModbusUDP.",
     },
     GlossaryEntry {
         term: "UMAS",
@@ -813,7 +825,7 @@ mod tests {
     }
 
     #[test]
-    fn glossaire_93_entrees() {
-        assert_eq!(GLOSSARY.len(), 93);
+    fn glossaire_95_entrees() {
+        assert_eq!(GLOSSARY.len(), 95);
     }
 }

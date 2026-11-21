@@ -5,10 +5,10 @@ use std::collections::BTreeSet;
 use lunar_flows_core::graph::{Edge, GraphData, Node};
 
 /// Libellés de protocole applicatif que le parser peut émettre (règles de
-/// `parse/dispatch/rules.rs`, packet_parser 11.8.2) : un libellé ajouté ici
+/// `parse/application/protocol.rs`, packet_parser 13.2.0) : un libellé ajouté ici
 /// fait échouer les tests du glossaire et de la table des usages tant qu'il
 /// n'est ni défini ni classé.
-pub const PARSER_APPLICATION_LABELS: [&str; 45] = [
+pub const PARSER_APPLICATION_LABELS: [&str; 48] = [
     "AMS",
     "ASTERIX",
     "BACnet/IP",
@@ -26,9 +26,11 @@ pub const PARSER_APPLICATION_LABELS: [&str; 45] = [
     "HTTP",
     "IEC 104",
     "IKE",
+    "Java RMI",
     "LLMNR",
     "mDNS",
     "ModbusTCP",
+    "ModbusUDP",
     "MQTT",
     "NAT-keepalive",
     "NBNS",
@@ -44,6 +46,7 @@ pub const PARSER_APPLICATION_LABELS: [&str; 45] = [
     "RDP",
     "RTPS",
     "S7Comm",
+    "SIP",
     "SMTP",
     "SNMP",
     "SRVLOC",
@@ -115,4 +118,21 @@ pub fn graph(nodes: Vec<(&str, Node)>, edges: Vec<(&str, Edge)>) -> GraphData {
         .edges
         .extend(edges.into_iter().map(|(key, edge)| (s(key), edge)));
     graph
+}
+
+/// Les deux listes ci-dessus suivent le parser : un protocole que
+/// `ApplicationProtocol::ALL` gagne à une montée de version fait échouer ce
+/// test tant que son libellé n'y figure pas. `Unknown` n'est pas un protocole
+/// et `STP` est un protocole de liaison, traité avec eux.
+#[test]
+fn les_listes_de_libelles_couvrent_tous_les_protocoles_du_parser() {
+    let missing: Vec<_> = packet_parser::ApplicationProtocol::ALL
+        .iter()
+        .map(|protocol| protocol.label())
+        .filter(|label| !matches!(*label, "Unknown" | "STP"))
+        .filter(|label| {
+            !PARSER_APPLICATION_LABELS.contains(label) && !PARSER_TUNNEL_LABELS.contains(label)
+        })
+        .collect();
+    assert!(missing.is_empty(), "{missing:?}");
 }
