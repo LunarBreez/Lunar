@@ -224,7 +224,7 @@ footer { margin-top: 40px; font-size: 12px; color: #6b7686; }
 <dt>mDNS <span class="muted">· Application IT</span></dt><dd>Multicast DNS : résolution de noms sans serveur, en multicast local (224.0.0.251, port 5353). Base de Bonjour/AirPlay et de nombreux objets connectés.</dd>
 <dt>SSDP / UPnP <span class="muted">· Application IT</span></dt><dd>Découverte d&#39;équipements UPnP en multicast (239.255.255.250, port 1900). Fréquent chez les objets grand public.</dd>
 <dt>TLS / HTTPS <span class="muted">· Application IT</span></dt><dd>Transport Layer Security : chiffre et authentifie une communication (successeur de SSL). HTTPS = HTTP sur TLS (port 443).</dd>
-<dt>Modbus/TCP <span class="muted">· Application OT/ICS</span></dt><dd>Protocole industriel très répandu (port 502) pour lire/écrire les registres d&#39;un automate. Simple, sans authentification native.</dd>
+<dt>Modbus/TCP <span class="muted">· Application OT/ICS</span></dt><dd>Protocole industriel très répandu (port 502) pour lire/écrire les registres d&#39;un automate. Simple, sans authentification native. La même enveloppe circule parfois sur UDP, hors spécification : elle est alors étiquetée ModbusUDP.</dd>
 <dt>S7comm <span class="muted">· Application OT/ICS</span></dt><dd>Protocole propriétaire Siemens pour dialoguer avec les automates S7, transporté sur ISO-TSAP/COTP (port 102).</dd>
 <dt>Tunnel / CAPWAP <span class="muted">· Concept</span></dt><dd>Encapsulation d&#39;un trafic dans un autre (ex. CAPWAP pour les bornes Wi-Fi). LUNAR décapsule et relie père/fils par un identifiant de tunnel.</dd></dl>
 

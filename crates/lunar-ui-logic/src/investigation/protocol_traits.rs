@@ -182,6 +182,10 @@ const TABLE: &[(&str, Option<UsageCategory>, Confidentiality)] = &[
     ("Valmet DNA", Some(U::IndustrialAndOperational), P),
     ("GIOP", None, P),
     ("Bitcoin", None, P),
+    // packet_parser 12.0.0 à 13.2.0
+    ("ModbusUDP", Some(U::IndustrialAndOperational), P),
+    ("Java RMI", None, P),
+    ("SIP", None, P),
     // Tunnels (`parse/tunnel/mod.rs`) : le contenu est un autre niveau.
     ("CAPWAP", Some(U::TunnelsAndVpn), I),
     ("VXLAN", Some(U::TunnelsAndVpn), I),

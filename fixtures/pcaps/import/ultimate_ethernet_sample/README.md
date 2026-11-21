@@ -42,6 +42,10 @@ Depuis la 11.7.0 (montée en 11.8.2), les trames 188 à 190 (deux
 requêtes et une réponse OCSP sur TCP 80) sont étiquetées `HTTP` et non plus
 `Unknown` : la sonde reconnaît les réponses et les requêtes à corps binaire.
 TShark y voit de l'OCSP, que HTTP transporte.
+Depuis la 12.0.0 (montée en 13.2.0), les trames 326 à 328 (Modbus sur UDP 502)
+sont étiquetées `ModbusUDP` et non plus `Unknown`, comme le `Modbus/UDP` de
+TShark. Depuis la 13.2.0, les trames 164 à 167 et 171 (SIP sur UDP 5060) sont
+étiquetées `SIP` et non plus `Unknown`, comme chez TShark.
 Le préambule du snapshot porte la période observée
 (`first_seen=2009-05-04T07:34:16.122475Z last_seen=2026-05-23T14:38:36.109585Z`),
 identique aux premier et dernier paquets que donne `capinfos -a -e`.

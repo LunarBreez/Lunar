@@ -27,4 +27,4 @@ serde_json = "1.0.154"
 [dev-dependencies]
 tempfile = "3.27.0"
 # Trames réelles parsées dans les essais du store de capture.
-packet_parser = "11.8.2"
+packet_parser = "13.2.0"

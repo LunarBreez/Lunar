@@ -42,6 +42,8 @@ fn exact_color(key: &str) -> Option<&'static str> {
         "srvloc" => "#14B8A6",
         "srvlock" => "#14B8A6",
         "modbustcp" => "#DC2626",
+        // Même protocole sur UDP : même teinte.
+        "modbusudp" => "#DC2626",
         // UMAS (Schneider) voyage dans une enveloppe Modbus et est reconnu avant
         // elle : teinte voisine du Modbus, distincte pour que la bascule se voie.
         "umas" => "#B91C1C",
