@@ -21,6 +21,8 @@ Les versions suivent le format `## **[X.Y.Z] - AAAA-MM-JJ**`. L'entrée
   au-delà de la glibc 2.35 d'Ubuntu 22.04.
 - **Release** : le binaire Windows est contrôlé pour charger `wpcap.dll` en
   différé, condition de son démarrage sans Npcap.
+- **Sécurité** : `url` 2.5.9 corrige un débordement de pile sur des URL
+  `blob:` imbriquées (RUSTSEC-2026-0592) ; le crate est tiré par gpui.
 - **Dépendances** : sources vendorisées dans `vendor/`, limitées aux cibles
   livrées (Linux et Windows x86_64) ; toute compilation se fait hors ligne.
 - **Sécurité** : politique de signalement des vulnérabilités (`SECURITY.md`).
