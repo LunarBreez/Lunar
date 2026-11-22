@@ -825,6 +825,146 @@ mod tests {
         );
     }
 
+    /// Export des flux affichés sur un relevé avec tunnels : filtrer sur le
+    /// tunnel écrit sa ligne externe sans ses lignes internes, et
+    /// inversement. Chaque moitié se réimporte, reste marquée partielle et
+    /// garde ses identifiants de tunnel même orphelins ; les deux moitiés
+    /// fusionnées redonnent les lignes d'origine.
+    #[test]
+    fn filtered_export_of_a_tunnelled_survey_keeps_orphan_tunnel_ids() {
+        use std::collections::{BTreeSet, HashSet};
+
+        type Line = (String, String, String, u64, u64);
+        let lines_of = |lunar: &Lunar| -> Vec<Line> {
+            let mut lines: Vec<Line> = lunar
+                .flow_matrix
+                .lock()
+                .unwrap()
+                .to_flat_vec()
+                .into_iter()
+                .map(|row| {
+                    (
+                        row.ip_source.clone(),
+                        row.ip_destination.clone(),
+                        row.encap_id.clone(),
+                        row.count,
+                        row.total_bytes,
+                    )
+                })
+                .collect();
+            lines.sort();
+            lines
+        };
+        let tunnel_ids = |lunar: &Lunar| -> BTreeSet<String> {
+            lunar
+                .get_graph_snapshot()
+                .unwrap()
+                .edges
+                .values()
+                .flat_map(|edge| edge.encap_ids.clone())
+                .collect()
+        };
+
+        let root = TempRoot::new("partiel_tunnels");
+        let source = Lunar::new(root.paths()).unwrap();
+        source
+            .convert_from_pcap_list(
+                vec![
+                    test_support::fixtures()
+                        .join("ndpi_capwap.pcap")
+                        .to_string_lossy()
+                        .into_owned(),
+                ],
+                Channel::new(|_| {}),
+            )
+            .unwrap();
+        let graph = source.get_graph_snapshot().unwrap();
+        let outer: HashSet<String> = graph
+            .edges
+            .iter()
+            .filter(|(_, edge)| edge.label.eq_ignore_ascii_case("CAPWAP"))
+            .map(|(key, _)| key.clone())
+            .collect();
+        let inner: HashSet<String> = graph
+            .edges
+            .iter()
+            .filter(|(key, edge)| !edge.encap_ids.is_empty() && !outer.contains(*key))
+            .map(|(key, _)| key.clone())
+            .collect();
+        assert!(!outer.is_empty(), "la capture porte des tunnels CAPWAP");
+        assert!(!inner.is_empty(), "et du trafic décapsulé");
+        let all_ids = tunnel_ids(&source);
+        let tunnelled: Vec<Line> = lines_of(&source)
+            .into_iter()
+            .filter(|line| !line.2.is_empty())
+            .collect();
+
+        let reimport = |paths: Vec<&std::path::Path>| {
+            let lunar = Lunar::new(root.paths()).unwrap();
+            lunar
+                .import_matrix_files(
+                    paths
+                        .into_iter()
+                        .map(|path| path.to_string_lossy().into_owned())
+                        .collect(),
+                    Channel::new(|_| {}),
+                )
+                .unwrap();
+            lunar
+        };
+        let export = |name: &str, keys: &HashSet<String>, filter: &str| {
+            let path = root.0.join(name);
+            let written = source
+                .export_csv_filtered(path.to_string_lossy().into_owned(), keys, filter)
+                .unwrap();
+            assert!(written >= keys.len(), "au moins une ligne par arête");
+            (path, written)
+        };
+
+        // Le tunnel sans son contenu.
+        let (outer_path, outer_written) = export("tunnels.csv", &outer, "protocoles : CAPWAP");
+        let outer_only = reimport(vec![&outer_path]);
+        assert_eq!(
+            outer_only.partial_filters().unwrap(),
+            ["protocoles : CAPWAP"]
+        );
+        assert_eq!(lines_of(&outer_only).len(), outer_written);
+        let outer_graph = outer_only.get_graph_snapshot().unwrap();
+        assert_eq!(outer_graph.edges.len(), outer.len());
+        assert!(
+            outer_graph
+                .edges
+                .values()
+                .all(|edge| edge.label.eq_ignore_ascii_case("CAPWAP") && !edge.encap_ids.is_empty()),
+            "chaque tunnel garde son identifiant, sans ligne interne"
+        );
+
+        // Le contenu sans son tunnel : identifiants orphelins, gardés.
+        let (inner_path, inner_written) = export("internes.csv", &inner, "trafic décapsulé");
+        let inner_only = reimport(vec![&inner_path]);
+        assert_eq!(inner_only.partial_filters().unwrap(), ["trafic décapsulé"]);
+        assert_eq!(lines_of(&inner_only).len(), inner_written);
+        let inner_graph = inner_only.get_graph_snapshot().unwrap();
+        assert_eq!(inner_graph.edges.len(), inner.len());
+        assert!(
+            inner_graph.edges.values().all(
+                |edge| !edge.label.eq_ignore_ascii_case("CAPWAP") && !edge.encap_ids.is_empty()
+            ),
+            "aucune ligne externe, et les identifiants de tunnel restent"
+        );
+        assert!(tunnel_ids(&inner_only).is_subset(&all_ids));
+
+        // Les deux moitiés fusionnées : lignes d'origine, tunnels réappariés,
+        // et le relevé reste partiel, sous ses deux filtres.
+        let both = reimport(vec![&outer_path, &inner_path]);
+        assert_eq!(lines_of(&both), tunnelled);
+        assert_eq!(tunnel_ids(&both), all_ids);
+        assert_eq!(
+            both.partial_filters().unwrap(),
+            ["protocoles : CAPWAP", "trafic décapsulé"]
+        );
+    }
+
     /// Import d'un classeur de labels par la façade, comme le fait
     /// l'interface : même rapport, même store et mêmes labels dans la
     /// matrice et le graphe qu'avec le CSV de mêmes cellules ; le doublon en
