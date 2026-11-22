@@ -173,6 +173,14 @@ jobs:
       - name: Smoke test (sans Npcap)
         run: target/release/lunar.exe --version | grep -E '^lunar [0-9]'
 
+      # LUNAR doit démarrer sans Npcap : wpcap.dll en chargement différé,
+      # jamais en import direct. Vérifié sur le binaire livré.
+      - name: Outils LLVM de la toolchain
+        run: rustup component add llvm-tools
+
+      - name: wpcap.dll en chargement différé
+        run: script/ci/check-windows-npcap-delayload.sh target/release/lunar.exe
+
       - name: Archive
         run: |
           name="lunar-$LABEL-x86_64-windows"

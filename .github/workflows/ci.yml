@@ -81,6 +81,14 @@ jobs:
       - name: Démarrage sans Npcap
         run: target/debug/lunar.exe --version
 
+      # Le démarrage ci-dessus ne prouve le chargement différé que si le
+      # runner n'a pas de wpcap.dll : le vérifier sur les imports du binaire.
+      - name: Outils LLVM de la toolchain
+        run: rustup component add llvm-tools
+
+      - name: wpcap.dll en chargement différé
+        run: script/ci/check-windows-npcap-delayload.sh target/debug/lunar.exe
+
   # Avis de sécurité RustSec, licences, doublons et sources des dépendances,
   # selon deny.toml.
   deny:
@@ -176,6 +184,9 @@ jobs:
         run: script/ci/tests/test-check-binary-is-passive.sh
         env:
           REQUIRE_LIBPCAP: "1"
+
+      - name: Le contrôle de wpcap.dll refuse un import direct
+        run: script/ci/tests/test-check-windows-npcap-delayload.sh
 
       - name: Le plancher glibc refuse un binaire trop récent
         run: script/ci/tests/test-check-binary-glibc-floor.sh

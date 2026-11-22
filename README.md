@@ -98,6 +98,7 @@ script/fuzz/smoke.sh                   # fuzzing borné des lecteurs et des tram
 script/ci/tests/test-check-binary-is-passive.sh
 script/ci/check-binary-is-passive.sh target/release/lunar
 script/ci/tests/test-check-binary-glibc-floor.sh
+script/ci/tests/test-check-windows-npcap-delayload.sh
 ```
 
 Le fuzzing (cargo-fuzz, toolchain nightly) est décrit dans
@@ -150,14 +151,16 @@ DBUS_SESSION_BUS_ADDRESS -u XAUTHORITY`).
 - **`.github/workflows/ci.yml`**, à chaque push sur `main` et sur chaque pull
   request :
   - Linux (Ubuntu 22.04) : formatage, clippy `-D warnings` et tests ;
-  - Windows : clippy, compilation et `--version` sans Npcap ;
+  - Windows : clippy, compilation, `--version` sans Npcap et `wpcap.dll` en
+    chargement différé ;
   - dépendances : `cargo deny check` (avis RustSec, licences, sources), selon
     `deny.toml` ;
   - fuzzing borné des lecteurs de fichiers non fiables (capture PCAP, matrice
     CSV, relevé WinAudit) et du décodage des trames, 90 s par cible ;
   - garde-fous de release : le contrôle de passivité est éprouvé sur des
     binaires fabriqués pour émettre, qu'il doit refuser ; celui du plancher
-    glibc, sur un binaire qui exige plus que le plancher donné.
+    glibc, sur un binaire qui exige plus que le plancher donné ; celui de
+    `wpcap.dll`, sur des listes d'imports où elle est importée directement.
 - **`.github/workflows/release.yml`**, au push d'un tag `vX.Y.Z` égal à la
   version du workspace :
   - binaires release Linux et Windows, avec un smoke test pour chacun : sur
@@ -166,6 +169,8 @@ DBUS_SESSION_BUS_ADDRESS -u XAUTHORITY`).
     libpcap importée, aucun client HTTP embarqué
     (`script/ci/check-binary-is-passive.sh`) ; le binaire Windows n'est pas
     couvert ;
+  - chargement différé de `wpcap.dll` dans le binaire Windows, qui démarre
+    ainsi sans Npcap (`script/ci/check-windows-npcap-delayload.sh`) ;
   - plancher glibc du binaire Linux : aucun symbole au-delà de la glibc 2.35
     d'Ubuntu 22.04 (`script/ci/check-binary-glibc-floor.sh`) ;
   - archives `lunar-X.Y.Z-x86_64-linux-gnu.tar.gz` et
