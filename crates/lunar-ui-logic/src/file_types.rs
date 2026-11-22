@@ -9,10 +9,14 @@ pub const PCAP_EXTENSIONS: &[&str] = &["pcap", "pcapng", "cap"];
 /// Extensions des matrices de flux (insensibles à la casse).
 pub const MATRIX_EXTENSIONS: &[&str] = &["csv", "xlsx"];
 
+/// Extensions des fichiers de labels (insensibles à la casse) : CSV, ou
+/// classeur Excel aux mêmes colonnes.
+pub const LABEL_EXTENSIONS: &[&str] = &["csv", "xlsx"];
+
 /// Mode du panneau d'import.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ImportMode {
-    /// Import d'un fichier de labels (`.csv`).
+    /// Import d'un fichier de labels (`.csv`, `.xlsx`).
     Csv,
     /// Import de captures et de matrices de flux.
     Pcap,
@@ -49,7 +53,7 @@ pub fn append_unique_paths<E: AsRef<str>, I: AsRef<str>>(
 /// Répartition des chemins déposés sur le panneau.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DroppedPathsRouting {
-    /// Mode labels : le premier `.csv` déposé.
+    /// Mode labels : le premier `.csv` ou `.xlsx` déposé.
     Csv {
         /// Chemin retenu.
         path: String,
@@ -65,15 +69,15 @@ pub enum DroppedPathsRouting {
     Ignored,
 }
 
-/// Répartit les chemins déposés selon le mode du panneau : un seul `.csv`
-/// en mode labels (le premier trouvé), ou des captures et des matrices en
+/// Répartit les chemins déposés selon le mode du panneau : un seul fichier
+/// de labels (`.csv`, `.xlsx`) en mode labels (le premier trouvé), ou des captures et des matrices en
 /// mode import. Les autres fichiers sont écartés.
 pub fn route_dropped_paths(paths: &[impl AsRef<str>], mode: ImportMode) -> DroppedPathsRouting {
     let paths = paths.iter().map(AsRef::as_ref);
     match mode {
         ImportMode::Csv => paths
             .into_iter()
-            .find(|path| extension_of(path) == "csv")
+            .find(|path| LABEL_EXTENSIONS.contains(&extension_of(path).as_str()))
             .map_or(DroppedPathsRouting::Ignored, |path| {
                 DroppedPathsRouting::Csv {
                     path: path.to_owned(),
@@ -102,6 +106,20 @@ pub fn route_dropped_paths(paths: &[impl AsRef<str>], mode: ImportMode) -> Dropp
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn un_classeur_de_labels_depose_est_retenu_comme_un_csv() {
+        assert_eq!(
+            route_dropped_paths(&["notes.txt", "Labels.XLSX", "autre.csv"], ImportMode::Csv),
+            DroppedPathsRouting::Csv {
+                path: "Labels.XLSX".to_owned()
+            }
+        );
+        assert_eq!(
+            route_dropped_paths(&["labels.xls", "labels.ods"], ImportMode::Csv),
+            DroppedPathsRouting::Ignored
+        );
+    }
 
     /// Liste de chemins possédés.
     fn owned(paths: &[&str]) -> Vec<String> {

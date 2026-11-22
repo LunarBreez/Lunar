@@ -4,6 +4,7 @@
 use std::future::Future;
 use std::path::Path;
 
+use lunar_ui_logic::file_types::LABEL_EXTENSIONS;
 use lunar_ui_logic::winaudit_import::{WINAUDIT_FILTER_NAME, WINAUDIT_SURVEY_EXTENSIONS};
 
 /// Chemin choisi, en texte (les commandes du moteur prennent des `String`).
@@ -22,12 +23,13 @@ pub fn with_default_extension(path: &str, extension: &str) -> String {
     }
 }
 
-/// Choix d'un fichier CSV, `title` facultatif, filtre `filter`.
-pub(crate) fn pick_csv(
+/// Choix d'un fichier de labels (CSV ou classeur Excel), `title` facultatif,
+/// filtre `filter`.
+pub(crate) fn pick_label_file(
     title: Option<&str>,
     filter: &str,
 ) -> impl Future<Output = Option<String>> + use<> {
-    let mut dialog = rfd::AsyncFileDialog::new().add_filter(filter, &["csv"]);
+    let mut dialog = rfd::AsyncFileDialog::new().add_filter(filter, LABEL_EXTENSIONS);
     if let Some(title) = title {
         dialog = dialog.set_title(title);
     }

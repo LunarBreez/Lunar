@@ -10,7 +10,7 @@ Relevé de matrices de flux réseau, avec une interface native
 - capture en direct ;
 - import de PCAP et de matrices ;
 - graphe des flux ;
-- labels (CSV, relevés WinAudit, conflits, arbitrage) ;
+- labels (CSV ou Excel, relevés WinAudit, conflits, arbitrage) ;
 - investigation et synthèse ;
 - projets et exports.
 

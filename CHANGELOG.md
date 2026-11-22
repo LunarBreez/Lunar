@@ -15,6 +15,9 @@ Les versions suivent le format `## **[X.Y.Z] - AAAA-MM-JJ**`. L'entrée
   préambule du fichier décrit le filtre (`filter=`) ; à son réimport, LUNAR
   prévient que le relevé est partiel, et il le reste dans les projets et les
   exports qui en sont tirés.
+- **Labels depuis Excel** : un fichier de labels peut être un classeur
+  `.xlsx` (première feuille, colonnes mac, ip, label), lu avec les mêmes
+  contrôles que le CSV ; une formule donne sa valeur, jamais son texte.
 - **Changelog** : l'entrée « Changelog » du menu Aide affiche les notes de la
   dernière version au lieu de « Fonction à venir ».
 - **Fuzzing** : cibles cargo-fuzz sur les lecteurs de fichiers non fiables

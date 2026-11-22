@@ -69,10 +69,10 @@ pub fn classify_label_import_error(err: &CaptureStateError) -> Option<LabelFileI
 pub const MAX_SHOWN: usize = 10;
 
 /// Format attendu, rappelé sous les erreurs de format.
-pub const EXPECTED_FORMAT: &str = "Format attendu : mac, ip, label — séparateur virgule, point-virgule ou tabulation (détecté) ; les colonnes suivantes sont ajoutées au label";
+pub const EXPECTED_FORMAT: &str = "Format attendu : mac, ip, label — CSV à séparateur virgule, point-virgule ou tabulation (détecté), ou première feuille d'un classeur .xlsx ; les colonnes suivantes sont ajoutées au label";
 
 /// Aide du format sous le panneau d'import.
-pub const FORMAT_HINT: &str = "Format : mac, ip, label — séparateur virgule, point-virgule ou tabulation (détecté) ; les colonnes suivantes sont ajoutées au label ; MAC acceptée en aa:bb:cc:dd:ee:ff, aa-bb-cc-dd-ee-ff, aabb.ccdd.eeff ou aabbccddeeff";
+pub const FORMAT_HINT: &str = "Format : mac, ip, label — CSV à séparateur virgule, point-virgule ou tabulation (détecté), ou première feuille d'un classeur .xlsx ; les colonnes suivantes sont ajoutées au label ; MAC acceptée en aa:bb:cc:dd:ee:ff, aa-bb-cc-dd-ee-ff, aabb.ccdd.eeff ou aabbccddeeff";
 
 /// Aide des relevés WinAudit sous le panneau d'import.
 pub const WINAUDIT_HINT: &str = "Relevés WinAudit : fichiers .csv au format WinAudit, un ou plusieurs à la fois. Label : identifiant SALP du nom de fichier et nom de machine, pour chaque adresse et, en repli, pour la MAC seule. Ces labels s'ajoutent à ceux en place ; un désaccord part à l'arbitrage.";

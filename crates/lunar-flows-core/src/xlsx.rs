@@ -51,6 +51,69 @@ fn first_sheet(path: &Path) -> Result<Range<Data>> {
         .map_err(|error| invalid(path, format!("lecture XLSX impossible: {error}")))
 }
 
+/// Première feuille du classeur rendue en texte CSV (virgules, champs
+/// protégés), pour repasser par un lecteur CSV existant : c'est ainsi qu'un
+/// fichier de labels `.xlsx` suit exactement les contrôles de son équivalent
+/// `.csv`.
+///
+/// La ligne `n` du texte est la ligne `n` de la feuille : les lignes vides
+/// sont gardées (vides) et un saut de ligne dans une cellule devient une
+/// espace, si bien que les numéros de ligne des erreurs désignent la feuille.
+/// Une cellule de formule donne sa dernière valeur calculée, jamais la
+/// formule : rien n'est évalué ici. Une cellule en erreur (`#N/A`,
+/// `#DIV/0!`…) fait refuser le classeur, avec sa ligne.
+///
+/// Une ligne non vide porte au moins `min_columns` champs : dans une feuille,
+/// une cellule laissée vide en fin de ligne (label à compléter) n'est pas
+/// une colonne manquante, contrairement à une ligne CSV trop courte.
+pub fn first_sheet_as_csv(path: &Path, min_columns: usize) -> Result<String> {
+    let range = first_sheet(path)?;
+    let failed = |error: &dyn std::fmt::Display| {
+        invalid(path, format!("conversion XLSX impossible: {error}"))
+    };
+    let mut csv_data = Vec::new();
+    {
+        let mut writer = csv::WriterBuilder::new()
+            .flexible(true)
+            .from_writer(&mut csv_data);
+        // La plage lue commence à la première cellule utilisée : les lignes
+        // vides au-dessus sont restituées pour garder la numérotation.
+        let first_row = range.start().map_or(0, |(row, _)| row as usize);
+        for _ in 0..first_row {
+            writer.write_record([""]).map_err(|error| failed(&error))?;
+        }
+        for (index, row) in range.rows().enumerate() {
+            let line = first_row + index + 1;
+            if let Some(error) = row.iter().find(|cell| cell.is_error()) {
+                return Err(invalid(
+                    path,
+                    format!("ligne {line} invalide: cellule en erreur ({error})"),
+                ));
+            }
+            // Les cellules vides de fin de ligne ne comptent pas : la feuille
+            // est rectangulaire, pas le fichier de labels.
+            let used = row
+                .iter()
+                .rposition(|cell| !cell.is_empty())
+                .map_or(0, |last| last + 1);
+            if used == 0 {
+                writer.write_record([""]).map_err(|error| failed(&error))?;
+                continue;
+            }
+            let padding = min_columns.saturating_sub(used);
+            let record = row[..used]
+                .iter()
+                .map(|cell| cell.to_string().replace(['\r', '\n'], " "))
+                .chain(std::iter::repeat_n(String::new(), padding));
+            writer
+                .write_record(record)
+                .map_err(|error| failed(&error))?;
+        }
+        writer.flush().map_err(|error| failed(&error))?;
+    }
+    String::from_utf8(csv_data).map_err(|error| failed(&error))
+}
+
 /// Type de liaison annoncé par le préambule `#LFMS` du classeur (Ethernet
 /// implicite pour un export antérieur au préambule).
 fn range_link_type(path: &Path, range: &Range<Data>) -> Result<(LinkType, usize)> {
@@ -181,6 +244,32 @@ mod tests {
         let rows = crate::csv::read_matrix_rows(&fixture("20260703_NP_Matrice.xlsx"))
             .expect("aiguillage vers le lecteur XLSX");
         assert!(!rows.is_empty());
+    }
+
+    /// La feuille de labels de test rendue en CSV : une ligne de texte par
+    /// ligne de feuille (la ligne vide reste), valeurs des formules et non
+    /// leur texte, deuxième feuille ignorée.
+    #[test]
+    fn first_sheet_as_csv_keeps_sheet_line_numbers_and_cached_values() {
+        let text = first_sheet_as_csv(&fixture("20261122_labels.xlsx"), 3).expect("conversion");
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 9, "{text}");
+        assert_eq!(lines[0], "mac,ip,label");
+        assert_eq!(
+            lines[2],
+            "aabb.ccdd.ee02,10.0.0.2,\"Poste; supervision, salle A\""
+        );
+        assert_eq!(lines[3], "\"\"", "ligne vide de la feuille gardée");
+        assert_eq!(
+            lines[4], "aa:bb:cc:dd:ee:03,10.0.0.3,",
+            "label vide : colonne gardée"
+        );
+        assert_eq!(lines[6], "aa:bb:cc:dd:ee:05,10.0.0.5,Serveur");
+        assert!(!text.contains("CONCATENATE"), "la formule n'est pas lue");
+        assert!(
+            !text.contains("Feuille 2"),
+            "seule la première feuille est lue"
+        );
     }
 
     #[test]
