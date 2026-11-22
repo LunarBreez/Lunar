@@ -176,3 +176,8 @@ jobs:
         run: script/ci/tests/test-check-binary-is-passive.sh
         env:
           REQUIRE_LIBPCAP: "1"
+
+      - name: Le plancher glibc refuse un binaire trop récent
+        run: script/ci/tests/test-check-binary-glibc-floor.sh
+        env:
+          REQUIRE_CC: "1"

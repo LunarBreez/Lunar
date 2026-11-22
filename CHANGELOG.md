@@ -17,6 +17,8 @@ Les versions suivent le format `## **[X.Y.Z] - AAAA-MM-JJ**`. L'entrée
   reçues en capture directe, bornées en CI.
 - **Release** : contrôle de passivité du binaire Linux (aucune primitive
   d'émission libpcap, aucun client HTTP embarqué).
+- **Release** : plancher glibc du binaire Linux, qui ne doit rien exiger
+  au-delà de la glibc 2.35 d'Ubuntu 22.04.
 - **Dépendances** : sources vendorisées dans `vendor/`, limitées aux cibles
   livrées (Linux et Windows x86_64) ; toute compilation se fait hors ligne.
 - **Sécurité** : politique de signalement des vulnérabilités (`SECURITY.md`).

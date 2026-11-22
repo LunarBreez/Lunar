@@ -97,6 +97,7 @@ script/build-windows-check.sh          # clippy et .exe Windows (cargo-xwin)
 script/fuzz/smoke.sh                   # fuzzing borné des lecteurs et des trames
 script/ci/tests/test-check-binary-is-passive.sh
 script/ci/check-binary-is-passive.sh target/release/lunar
+script/ci/tests/test-check-binary-glibc-floor.sh
 ```
 
 Le fuzzing (cargo-fuzz, toolchain nightly) est décrit dans
@@ -155,7 +156,8 @@ DBUS_SESSION_BUS_ADDRESS -u XAUTHORITY`).
   - fuzzing borné des lecteurs de fichiers non fiables (capture PCAP, matrice
     CSV, relevé WinAudit) et du décodage des trames, 90 s par cible ;
   - garde-fous de release : le contrôle de passivité est éprouvé sur des
-    binaires fabriqués pour émettre, qu'il doit refuser.
+    binaires fabriqués pour émettre, qu'il doit refuser ; celui du plancher
+    glibc, sur un binaire qui exige plus que le plancher donné.
 - **`.github/workflows/release.yml`**, au push d'un tag `vX.Y.Z` égal à la
   version du workspace :
   - binaires release Linux et Windows, avec un smoke test pour chacun : sur
@@ -164,6 +166,8 @@ DBUS_SESSION_BUS_ADDRESS -u XAUTHORITY`).
     libpcap importée, aucun client HTTP embarqué
     (`script/ci/check-binary-is-passive.sh`) ; le binaire Windows n'est pas
     couvert ;
+  - plancher glibc du binaire Linux : aucun symbole au-delà de la glibc 2.35
+    d'Ubuntu 22.04 (`script/ci/check-binary-glibc-floor.sh`) ;
   - archives `lunar-X.Y.Z-x86_64-linux-gnu.tar.gz` et
     `lunar-X.Y.Z-x86_64-windows.zip`, `SHA256SUMS` ;
   - SBOM CycloneDX 1.5 de chaque cible (`lunar-X.Y.Z-<cible>.cdx.json`) ;
