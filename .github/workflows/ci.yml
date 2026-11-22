@@ -109,6 +109,63 @@ jobs:
       - name: Vérification des dépendances
         run: cargo deny --locked check
 
+  # Deux contrôles de plus sur les dépendances, pour le produit et pour le
+  # crate de fuzzing. cargo-audit relit les avis RustSec, en doublon voulu de
+  # cargo-deny. cargo-vet exige que chaque crate, à sa version exacte, soit
+  # couvert par un audit (les nôtres ou ceux des organisations importées dans
+  # supply-chain/) ou par une exemption explicite : une dépendance nouvelle
+  # ou mise à jour fait échouer le job tant qu'elle n'est ni auditée ni
+  # exemptée. Les audits importés sont figés dans supply-chain/imports.lock :
+  # cargo-vet ne télécharge rien (--frozen).
+  audits:
+    name: Dépendances (cargo-audit, cargo-vet)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Toolchain Rust
+        run: script/ci/install-toolchain.sh
+
+      - name: cargo-audit
+        run: script/ci/install-cargo-audit.sh
+
+      - name: cargo-vet
+        run: script/ci/install-cargo-vet.sh
+
+      - name: Avis de sécurité RustSec
+        run: |
+          cargo audit
+          cargo audit --file crates/lunar-flows-core/fuzz/Cargo.lock
+
+      - name: Audits de la chaîne d'approvisionnement
+        run: |
+          cargo vet --locked --frozen
+          cargo vet --locked --frozen --store-path supply-chain \
+            --manifest-path crates/lunar-flows-core/fuzz/Cargo.toml
+
+  # Dépendances déclarées dans un Cargo.toml mais jamais utilisées : chacune
+  # est une surface d'attaque et un coût de relecture pour rien.
+  udeps:
+    name: Dépendances inutilisées (cargo-udeps)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Dépendances système
+        run: script/ci/install-linux-deps.sh
+
+      - name: cargo-udeps et toolchain nightly
+        run: script/ci/install-cargo-udeps.sh
+
+      - name: Dépendances inutilisées
+        run: script/ci/check-unused-deps.sh
+
   # Chaîne d'approvisionnement : vendor/ doit être exactement ce que crates.io
   # fournit pour les Cargo.lock. Tous les autres jobs compilent depuis vendor/
   # (.cargo/config.toml) ; celui-ci est le seul à interroger crates.io.

@@ -154,7 +154,9 @@ DBUS_SESSION_BUS_ADDRESS -u XAUTHORITY`).
   - Windows : clippy, compilation, `--version` sans Npcap et `wpcap.dll` en
     chargement différé ;
   - dépendances : `cargo deny check` (avis RustSec, licences, sources), selon
-    `deny.toml` ;
+    `deny.toml` ; `cargo audit` (avis RustSec, second outil) ; `cargo vet`
+    (chaque crate audité ou exempté, voir « Audits des dépendances ») ;
+    `cargo udeps` (dépendances déclarées mais inutilisées) ;
   - fuzzing borné des lecteurs de fichiers non fiables (capture PCAP, matrice
     CSV, relevé WinAudit) et du décodage des trames, 90 s par cible ;
   - garde-fous de release : le contrôle de passivité est éprouvé sur des
@@ -233,6 +235,32 @@ script/vendor.sh --verify                     # vendor/ identique à crates.io ?
 --update`, qui réaligne aussi le `Cargo.lock` du fuzzing. La CI régénère
 `vendor/` depuis crates.io et refuse tout écart avec ce qui est commité. Les
 sources vendorisées ne sont pas modifiées à la main.
+
+### Audits des dépendances
+
+`supply-chain/` est le registre [cargo-vet](https://mozilla.github.io/cargo-vet/)
+du dépôt. Chaque crate des deux `Cargo.lock`, à sa version exacte, doit y être
+couvert de l'une de ces façons :
+
+- un audit publié par une organisation importée (Bytecode Alliance, Embark,
+  Google, ISRG, Mozilla, Zcash), figé dans `supply-chain/imports.lock` ;
+- un audit du projet, dans `supply-chain/audits.toml` (aucun pour l'instant) ;
+- une exemption dans `supply-chain/config.toml` : le crate est accepté sans
+  audit. Les exemptions sont le reste à auditer, pas une validation.
+
+Une dépendance ajoutée ou mise à jour fait donc échouer la CI tant qu'elle
+n'est ni auditée ni exemptée :
+
+```sh
+cargo vet                         # ce qui manque, et les diffs à relire
+cargo vet certify <crate> <version>     # après relecture : inscrire un audit
+cargo vet regenerate exemptions   # sinon : accepter sans audit, explicitement
+cargo vet regenerate imports      # rafraîchir les audits importés (réseau)
+```
+
+`script/ci/install-cargo-vet.sh`, `install-cargo-audit.sh` et
+`install-cargo-udeps.sh` installent les versions épinglées des trois outils ;
+`script/ci/check-unused-deps.sh` lance cargo-udeps sur sa toolchain nightly.
 
 ## Hors périmètre
 
