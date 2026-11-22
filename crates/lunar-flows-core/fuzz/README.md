@@ -12,9 +12,13 @@ est un défaut.
 | `winaudit_reader` | Décodage (UTF-16, UTF-8), détection du séparateur, rubriques lues par position, filtrage des adaptateurs, arbitrage entre relevés. |
 | `packet_frames` | Une trame brute et son type de liaison, sans libpcap ni format de fichier : décodeurs de `packet_parser`, puis dépliage des tunnels en niveaux de flux, comme en capture directe. |
 
-L'import XLSX n'a pas de cible : passé le conteneur ZIP (calamine), il rejoint
-le lecteur de `matrix_reader`. Une cible utile devrait fabriquer elle-même le
-conteneur.
+| `xlsx_reader` | Classeur XLSX : conteneur ZIP et ouverture par calamine, ou XML d'une feuille emballé par la cible dans une archive valide ; puis les deux usages du classeur, matrice de flux (jusqu'aux lignes à plat et au graphe) et fichier de labels (première feuille rendue en CSV). |
+
+Le premier octet d'une entrée de `xlsx_reader` choisit sa forme : pair, le
+reste est le classeur tel quel ; impair, le reste est le XML de la première
+feuille, suivi au besoin du marqueur `<!--LUNAR-SHARED-STRINGS-->` (seul sur
+sa ligne) et du XML des chaînes partagées. La cible fabrique alors l'archive :
+une archive compressée mutée à l'aveugle est refusée dès son conteneur.
 
 ## Lancer
 
@@ -63,6 +67,21 @@ défaut corrigé ne revienne pas.
   flux d'un équipement). Les additions débordaient ; elles saturent, comme
   celles des octets. Défaut repéré à la relecture en écrivant la cible, que
   le fuzzer seul n'atteint pas vite : la graine le lui donne.
+
+- `xlsx_reader/cellules_aux_deux_bouts.feuille` : feuille de 300 octets qui
+  ne déclare que `A1` et `XFD1048576`. La plage rectangulaire de calamine
+  réservait toute la surface entre les deux, soit 512 Gio : l'import d'un tel
+  classeur arrêtait l'application. Trouvé par la cible en vingt secondes. La
+  feuille est maintenant lue cellule par cellule, dans des bornes (256
+  colonnes, 1 048 576 lignes, 8 millions de cellules).
+- `xlsx_reader/reference_de_cellule_debordante.feuille` : référence de
+  cellule `AAAAAAAAAA2`, dont calamine 0.38.0 calcule la colonne sans
+  contrôle de débordement. **Défaut amont, non corrigé** : panic dans une
+  compilation à contrôles de débordement (tests, fuzzing) ; dans le binaire
+  livré, compilé sans, la colonne aberrante est refusée par les bornes
+  ci-dessus. La cible tolère ce seul panic, reconnu à son emplacement et à
+  son message ; il faudra retirer cette tolérance quand calamine sera
+  corrigé.
 
 ## Dépendances
 

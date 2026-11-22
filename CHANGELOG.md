@@ -18,6 +18,12 @@ Les versions suivent le format `## **[X.Y.Z] - AAAA-MM-JJ**`. L'entrée
 - **Labels depuis Excel** : un fichier de labels peut être un classeur
   `.xlsx` (première feuille, colonnes mac, ip, label), lu avec les mêmes
   contrôles que le CSV ; une formule donne sa valeur, jamais son texte.
+- **Sécurité** : un classeur XLSX de quelques centaines d'octets, déclarant
+  deux cellules aux deux bouts d'une feuille, faisait réserver des centaines
+  de gigaoctets à l'import et arrêtait l'application. La feuille est lue
+  cellule par cellule, dans des bornes ; un classeur qui les dépasse est
+  refusé avec la ligne en cause. Trouvé par la nouvelle cible de fuzzing
+  `xlsx_reader`.
 - **Changelog** : l'entrée « Changelog » du menu Aide affiche les notes de la
   dernière version au lieu de « Fonction à venir ».
 - **Fuzzing** : cibles cargo-fuzz sur les lecteurs de fichiers non fiables

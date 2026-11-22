@@ -18,7 +18,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-lunar-flows-core = { path = "..", features = ["pcap"] }
+lunar-flows-core = { path = "..", features = ["pcap", "xlsx"] }
 # Dépendances directes de la cible `packet_frames`, aux versions du produit
 # (script/fuzz/sync-lock.sh) : décodeurs, en-tête libpcap et son horodatage.
 packet_parser = "13.2.0"
@@ -49,6 +49,13 @@ bench = false
 [[bin]]
 name = "packet_frames"
 path = "fuzz_targets/packet_frames.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xlsx_reader"
+path = "fuzz_targets/xlsx_reader.rs"
 test = false
 doc = false
 bench = false

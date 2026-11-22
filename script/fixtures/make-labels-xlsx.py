@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 """Régénère fixtures/20261122_labels.xlsx, classeur de labels de test, et
-fixtures/20261122_labels_erreur.xlsx, le même avec une cellule en erreur.
+fixtures/20261122_labels_erreur.xlsx, le même avec une cellule en erreur,
+et fixtures/20261122_labels_matrice.xlsx, labels d'équipements présents
+dans fixtures/20260703_NP_Matrice.csv (avec un doublon en désaccord et une
+ligne sans label).
+
+Deux classeurs hostiles les accompagnent : 20261122_classeur_cellule_lointaine.xlsx
+(cellules A1 et XFD1048576 : la plage rectangulaire entre les deux pèserait
+des centaines de gigaoctets) et 20261122_classeur_hors_feuille.xlsx (cellule
+au-delà de la dernière ligne d'une feuille).
 
 Bibliothèque standard seule, sortie reproductible (dates et ordre figés) :
     python3 script/fixtures/make-labels-xlsx.py
@@ -36,6 +44,13 @@ BROKEN = [
     ["mac", "ip", "label"],
     ["aa:bb:cc:dd:ee:01", "10.0.0.1", "Automate ligne 1"],
     ["aa:bb:cc:dd:ee:02", "10.0.0.2", ("e", "#N/A")],
+]
+OBSERVED = [
+    ["mac", "ip", "label"],
+    ["E0-D5-5E-28-9B-D4", "192.168.1.181", "Poste de relevé"],
+    ["44:15:24:20:a5:64", "192.168.1.254", "Passerelle"],
+    ["e0:d5:5e:28:9b:d4", "192.168.1.181", "Autre nom"],
+    ["aa:bb:cc:dd:ee:09", "10.0.0.9", ""],
 ]
 HIDDEN = [["mac", "ip", "label"], ["aa:bb:cc:dd:ee:ff", "10.9.9.9", "Feuille 2, jamais lue"]]
 
@@ -100,9 +115,20 @@ FILES = {
 }
 
 
+def raw_sheet(cells):
+    """Feuille à partir de couples (référence, texte), une ligne par cellule."""
+    out = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+           '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>']
+    for ref, text in cells:
+        row = "".join(c for c in ref if c.isdigit())
+        out.append(f'<row r="{row}"><c r="{ref}" t="inlineStr"><is><t>{escape(text)}</t></is></c></row>')
+    out.append("</sheetData></worksheet>")
+    return "".join(out)
+
+
 def write(target, rows):
     files = dict(FILES)
-    files["xl/worksheets/sheet1.xml"] = sheet_xml(rows)
+    files["xl/worksheets/sheet1.xml"] = rows if isinstance(rows, str) else sheet_xml(rows)
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
         for name, content in files.items():
             info = zipfile.ZipInfo(name, date_time=(2026, 11, 22, 0, 0, 0))
@@ -115,6 +141,15 @@ def write(target, rows):
 def main():
     write(TARGET, ROWS)
     write(TARGET.with_name("20261122_labels_erreur.xlsx"), BROKEN)
+    write(TARGET.with_name("20261122_labels_matrice.xlsx"), OBSERVED)
+    write(
+        TARGET.with_name("20261122_classeur_cellule_lointaine.xlsx"),
+        raw_sheet([("A1", "mac"), ("XFD1048576", "loin")]),
+    )
+    write(
+        TARGET.with_name("20261122_classeur_hors_feuille.xlsx"),
+        raw_sheet([("A1", "mac"), ("A1048577", "trop bas")]),
+    )
 
 
 if __name__ == "__main__":

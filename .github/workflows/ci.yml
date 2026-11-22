@@ -185,7 +185,7 @@ jobs:
         run: script/vendor.sh --verify
 
   # Fuzzing borné des lecteurs de fichiers non fiables (capture PCAP, matrice
-  # CSV, relevé WinAudit) : la CI prouve à chaque push que les cibles
+  # CSV, classeur XLSX, relevé WinAudit) et du décodage des trames : la CI prouve à chaque push que les cibles
   # s'exécutent et qu'aucun crash trivial n'existe. Les campagnes longues se
   # font hors CI (crates/lunar-flows-core/fuzz/README.md).
   fuzz:

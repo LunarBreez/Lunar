@@ -13,7 +13,8 @@ pcap_corpus="$fuzz/corpus/pcap_reader"
 matrix_corpus="$fuzz/corpus/matrix_reader"
 winaudit_corpus="$fuzz/corpus/winaudit_reader"
 frames_corpus="$fuzz/corpus/packet_frames"
-mkdir -p -- "$pcap_corpus" "$matrix_corpus" "$winaudit_corpus" "$frames_corpus"
+xlsx_corpus="$fuzz/corpus/xlsx_reader"
+mkdir -p -- "$pcap_corpus" "$matrix_corpus" "$winaudit_corpus" "$frames_corpus" "$xlsx_corpus"
 
 # --- pcap_reader ------------------------------------------------------------
 # Petites captures : Ethernet, VLAN, IP nu, boucle locale, tunnels (CAPWAP,
@@ -107,16 +108,36 @@ iconv -f UTF-16 -t UTF-8 "$survey" >"$winaudit_corpus/utf8.csv"
 { printf '\xEF\xBB\xBF'; cat "$winaudit_corpus/utf8.csv"; } >"$winaudit_corpus/utf8_bom.csv"
 { printf '\xFE\xFF'; iconv -f UTF-16 -t UTF-16BE "$survey"; } >"$winaudit_corpus/utf16be.csv"
 
+# --- xlsx_reader ------------------------------------------------------------
+# Chaque classeur versionné donne deux graines : le fichier tel quel (octet
+# de forme 0) et le XML de sa première feuille, que la cible emballe
+# elle-même (octet de forme 1).
+for workbook in "$fixtures"/*.xlsx; do
+  name="$(basename -- "$workbook" .xlsx)"
+  { printf '\000'; cat -- "$workbook"; } >"$xlsx_corpus/$name.classeur"
+  { printf '\001'; unzip -p -- "$workbook" xl/worksheets/sheet1.xml; } >"$xlsx_corpus/$name.feuille"
+done
+# Feuille à chaînes partagées, cellules numériques, date et erreur.
+{
+  printf '\001'
+  printf '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+  printf '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" t="s"><v>2</v></c></row>'
+  printf '<row r="3"><c r="A3"><v>1122334455</v></c><c r="B3" t="b"><v>1</v></c><c r="C3" t="e"><v>#N/A</v></c></row>'
+  printf '</sheetData></worksheet>'
+  printf '\n<!--LUNAR-SHARED-STRINGS-->\n'
+  printf '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><si><t>mac</t></si><si><t>ip</t></si><si><r><t>la</t></r><r><t>bel</t></r></si></sst>'
+} >"$xlsx_corpus/chaines_partagees.feuille"
+
 # --- Graines de régression --------------------------------------------------
 # Chaque crash corrigé reste dans le corpus : regressions/<cible>/ est
 # versionné et recopié ici.
-for target in pcap_reader matrix_reader winaudit_reader packet_frames; do
+for target in pcap_reader matrix_reader winaudit_reader packet_frames xlsx_reader; do
   if compgen -G "$fuzz/regressions/$target/*" >/dev/null; then
     cp -- "$fuzz/regressions/$target"/* "$fuzz/corpus/$target/"
   fi
 done
 
-for target in pcap_reader matrix_reader winaudit_reader packet_frames; do
+for target in pcap_reader matrix_reader winaudit_reader packet_frames xlsx_reader; do
   printf 'Corpus %s : %s graines\n' "$target" \
     "$(find "$fuzz/corpus/$target" -maxdepth 1 -type f | wc -l)"
 done
