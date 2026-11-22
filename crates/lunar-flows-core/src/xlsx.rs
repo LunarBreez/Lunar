@@ -151,7 +151,15 @@ fn first_sheet(path: &Path) -> Result<Sheet> {
 /// Une ligne non vide porte au moins `min_columns` champs : dans une feuille,
 /// une cellule laissée vide en fin de ligne (label à compléter) n'est pas
 /// une colonne manquante, contrairement à une ligne CSV trop courte.
-pub fn first_sheet_as_csv(path: &Path, min_columns: usize) -> Result<String> {
+///
+/// Les `text_columns` premières colonnes portent des identifiants (adresses)
+/// et doivent être des cellules de texte : un tableur qui a pris
+/// `001122334455` pour un nombre en a retiré les zéros de tête, et
+/// `123456789E03` est devenu `123456789000`, une autre adresse tout aussi
+/// plausible. Une telle cellule fait refuser le classeur, avec sa ligne, sa
+/// colonne et la correction à faire, plutôt que de lire une valeur réécrite.
+/// Au-delà, une cellule numérique est lue telle qu'affichée.
+pub fn first_sheet_as_csv(path: &Path, min_columns: usize, text_columns: usize) -> Result<String> {
     let range = first_sheet(path)?;
     let failed = |error: &dyn std::fmt::Display| {
         invalid(path, format!("conversion XLSX impossible: {error}"))
@@ -174,6 +182,23 @@ pub fn first_sheet_as_csv(path: &Path, min_columns: usize) -> Result<String> {
                 return Err(invalid(
                     path,
                     format!("ligne {line} invalide: cellule en erreur ({error})"),
+                ));
+            }
+            if let Some((column, cell)) = row
+                .iter()
+                .enumerate()
+                .take(text_columns)
+                .find(|(_, cell)| !cell.is_empty() && !cell.is_string())
+            {
+                return Err(invalid(
+                    path,
+                    format!(
+                        "ligne {line} invalide: la cellule de la colonne {} n'est pas du \
+                         texte (valeur lue : {cell}). Un tableur réécrit une adresse saisie \
+                         comme un nombre (zéros de tête retirés) : mettre la colonne au \
+                         format Texte, puis ressaisir l'adresse",
+                        column + 1
+                    ),
                 ));
             }
             let used = row
@@ -328,7 +353,7 @@ mod tests {
     /// leur texte, deuxième feuille ignorée.
     #[test]
     fn first_sheet_as_csv_keeps_sheet_line_numbers_and_cached_values() {
-        let text = first_sheet_as_csv(&fixture("20261122_labels.xlsx"), 3).expect("conversion");
+        let text = first_sheet_as_csv(&fixture("20261122_labels.xlsx"), 3, 2).expect("conversion");
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines.len(), 9, "{text}");
         assert_eq!(lines[0], "mac,ip,label");
@@ -357,7 +382,9 @@ mod tests {
     fn far_apart_cells_are_refused_without_allocating_the_range_between() {
         let far = fixture("20261122_classeur_cellule_lointaine.xlsx");
         for message in [
-            first_sheet_as_csv(&far, 3).expect_err("labels").to_string(),
+            first_sheet_as_csv(&far, 3, 2)
+                .expect_err("labels")
+                .to_string(),
             read_matrix_rows(&far).expect_err("matrice").to_string(),
             matrix_file_link_type(&far).expect_err("DLT").to_string(),
         ] {
@@ -370,12 +397,71 @@ mod tests {
         }
 
         let below = fixture("20261122_classeur_hors_feuille.xlsx");
-        let message = first_sheet_as_csv(&below, 3)
+        let message = first_sheet_as_csv(&below, 3, 2)
             .expect_err("hors feuille")
             .to_string();
         assert!(
             message.contains("cellule en ligne 1048577 : au-delà de la dernière ligne"),
             "{message}"
+        );
+    }
+
+    /// Une adresse en cellule numérique est refusée avec sa ligne, sa colonne
+    /// et la correction à faire ; hors des colonnes d'adresses, un nombre est
+    /// lu tel qu'affiché.
+    #[test]
+    fn numeric_cells_are_refused_in_text_columns_and_read_elsewhere() {
+        let mac = first_sheet_as_csv(&fixture("20261122_labels_mac_numerique.xlsx"), 3, 2)
+            .expect_err("MAC numérique")
+            .to_string();
+        assert!(
+            mac.contains(
+                "ligne 3 invalide: la cellule de la colonne 1 n'est pas du texte \
+                 (valeur lue : 1122334455)"
+            ),
+            "{mac}"
+        );
+        assert!(mac.contains("format Texte"), "{mac}");
+
+        let ip = first_sheet_as_csv(&fixture("20261122_labels_ip_numerique.xlsx"), 3, 2)
+            .expect_err("IP numérique")
+            .to_string();
+        assert!(
+            ip.contains("ligne 2 invalide: la cellule de la colonne 2 n'est pas du texte"),
+            "{ip}"
+        );
+
+        let text = first_sheet_as_csv(&fixture("20261122_labels_numeriques.xlsx"), 3, 2)
+            .expect("labels numériques");
+        assert_eq!(
+            text,
+            "mac,ip,label\naa:bb:cc:dd:ee:01,10.0.0.1,42\naa:bb:cc:dd:ee:02,10.0.0.2,1.5\n"
+        );
+        // Sans colonne imposée en texte, la même feuille est lue.
+        let unchecked = first_sheet_as_csv(&fixture("20261122_labels_mac_numerique.xlsx"), 3, 0)
+            .expect("aucune colonne de texte imposée");
+        assert!(unchecked.contains("1122334455,10.0.0.2,Automate ligne 2"));
+    }
+
+    /// Un tableau posé plus bas ou plus à droite garde les positions de la
+    /// feuille : lignes vides restituées au-dessus, colonne vide restituée à
+    /// gauche. Rien n'est recalé en silence.
+    #[test]
+    fn a_table_away_from_a1_keeps_its_sheet_positions() {
+        let lower = first_sheet_as_csv(&fixture("20261122_labels_ligne_4.xlsx"), 3, 2)
+            .expect("tableau en ligne 4");
+        let lines: Vec<&str> = lower.lines().collect();
+        assert_eq!(lines.len(), 6, "{lower}");
+        assert_eq!(&lines[..3], ["\"\"", "\"\"", "\"\""]);
+        assert_eq!(lines[3], "mac,ip,label");
+        assert_eq!(lines[5], "aa:bb:cc:dd:ee:02,10.0.0.2,Automate ligne 2");
+
+        let shifted = first_sheet_as_csv(&fixture("20261122_labels_colonne_b.xlsx"), 3, 2)
+            .expect("tableau en colonne B");
+        assert_eq!(
+            shifted.lines().next(),
+            Some(",mac,ip,label"),
+            "colonne A vide gardée"
         );
     }
 
