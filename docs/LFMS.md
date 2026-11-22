@@ -57,6 +57,18 @@ version près :
   Tirées des seules données, elles ne cassent pas le déterminisme : deux
   exports de la même matrice restent identiques octet pour octet. Un lecteur
   qui ne les connaît pas les ignore (clés inconnues tolérées).
+- `filter` : présent seulement sur une matrice **partielle**, c'est-à-dire
+  un export des seuls flux affichés de la vue d'investigation. Sa valeur
+  décrit le filtre en clair, percent-encodée comme le contexte
+  (`filter=protocoles%20%3A%20TLS%20%3B%20recherche%20%3A%20%C2%AB%20srv%20%C2%BB`).
+  Un export complet d'un relevé complet ne porte pas la clé. Au réimport,
+  LUNAR prévient que le relevé est partiel et le relevé le reste : fusionné
+  avec d'autres fichiers, enregistré dans un projet ou réexporté en entier,
+  il redit ses filtres, séparés par ` | ` quand plusieurs exports partiels
+  s'enchaînent ou se fusionnent. La marque vient des fichiers importés,
+  jamais de la session précédente. Un classeur XLSX n'a pas de préambule :
+  une matrice partielle recopiée dans un classeur perd sa marque. Comme les
+  autres clés ajoutées, un lecteur qui ne la connaît pas l'ignore.
 - Les clés inconnues sont tolérées à l'import (extensions futures) ; un
   préambule présent mais illisible est une erreur, pas un avertissement.
 - Un fichier **sans** préambule (export antérieur au format) est importé

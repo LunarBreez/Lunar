@@ -169,6 +169,20 @@ pub fn parse_encap_list(
 /// noms, joints par ce caractère (ex. `site-a.csv|site-b.csv`).
 pub const ORIGIN_SEP: char = '|';
 
+/// Séparateur des filtres dans la clé `filter=` du préambule #LFMS, quand un
+/// export partiel est lui-même tiré d'un relevé déjà partiel.
+pub const FILTER_SEP: &str = " | ";
+
+/// Filtres déclarés par la clé `filter=` d'un préambule, un par export
+/// partiel traversé.
+pub fn split_filters(declared: &str) -> impl Iterator<Item = String> + '_ {
+    declared
+        .split(FILTER_SEP)
+        .map(str::trim)
+        .filter(|filter| !filter.is_empty())
+        .map(str::to_string)
+}
+
 /// Découpe une valeur de colonne `origin` en noms de fichiers individuels
 /// (vides ignorés).
 pub fn parse_origin_list(origin: &str) -> impl Iterator<Item = String> + '_ {
@@ -215,6 +229,11 @@ pub struct FlowMatrix {
     /// ou inconnue si une matrice importée ne la déclarait pas. Écrite dans
     /// le préambule #LFMS (`first_seen=` / `last_seen=`).
     pub period: crate::lfms::SurveyPeriod,
+    /// Filtres des exports partiels dont ce relevé est issu (clé `filter=`
+    /// du préambule #LFMS des matrices importées). Vide : rien n'indique que
+    /// le relevé soit incomplet. Non vide : il ne porte qu'une partie des
+    /// flux observés, et tout export le redit dans son préambule.
+    pub partial: BTreeSet<String>,
 }
 
 impl Default for FlowMatrix {
@@ -237,6 +256,7 @@ impl FlowMatrix {
             context: crate::lfms::SurveyContext::default(),
             unicast_ips_by_mac: HashMap::new(),
             period: crate::lfms::SurveyPeriod::Empty,
+            partial: BTreeSet::new(),
         }
     }
 
@@ -409,6 +429,27 @@ impl FlowMatrix {
         self.link_type = None;
         self.unicast_ips_by_mac.clear();
         self.period = crate::lfms::SurveyPeriod::Empty;
+        self.partial.clear();
+    }
+
+    /// Filtre à écrire dans le préambule d'un export : ceux des exports
+    /// partiels dont le relevé est issu, puis `added` (le filtre de l'export
+    /// en cours, s'il y en a un), sans doublon, joints par [`FILTER_SEP`].
+    /// `None` pour un relevé complet exporté en entier.
+    ///
+    /// Une barre verticale dans `added` (texte de recherche libre) devient
+    /// `/` : elle serait relue comme un séparateur de filtres.
+    pub fn export_filter(&self, added: Option<&str>) -> Option<String> {
+        let mut filters: Vec<&str> = self.partial.iter().map(String::as_str).collect();
+        let added = added
+            .map(|added| added.replace('|', "/").trim().to_string())
+            .filter(|added| !added.is_empty());
+        if let Some(added) = added.as_deref()
+            && !filters.contains(&added)
+        {
+            filters.push(added);
+        }
+        (!filters.is_empty()).then(|| filters.join(FILTER_SEP))
     }
 
     // pub fn print(&self) {
@@ -459,9 +500,16 @@ impl FlowMatrix {
     /// triées sur tous les champs d'identité : deux exports du même état
     /// donnent le même fichier.
     pub fn to_flat_vec(&self) -> Vec<FlowMatrixRow> {
+        self.to_flat_vec_where(|_| true)
+    }
+
+    /// Lignes de [`to_flat_vec`](Self::to_flat_vec) pour les seuls flux que
+    /// `keep` retient : même contenu, même ordre, pour un export partiel.
+    pub fn to_flat_vec_where(&self, keep: impl Fn(&PacketFlowOwned) -> bool) -> Vec<FlowMatrixRow> {
         let mut rows: Vec<FlowMatrixRow> = self
             .matrix
             .iter()
+            .filter(|(flow, _)| keep(flow))
             .map(|(flow, entries)| {
                 // Une seule ligne par flux : les compteurs par tunnel sont
                 // refusionnés, la ventilation reste lisible dans `encap_id`.
@@ -599,11 +647,12 @@ impl FlowMatrix {
     /// Exporte la matrice vers un fichier CSV (écriture atomique), préambule
     /// `#LFMS` en tête (version du format, DLT, contexte et période).
     pub fn export_to_csv(&self, path: String) -> std::io::Result<()> {
-        Self::write_rows_to_csv_with_context(
+        Self::write_rows_to_csv_with_filter(
             &self.to_flat_vec(),
             self.link_type,
             &self.context,
             self.period.known(),
+            self.export_filter(None).as_deref(),
             &path,
         )
     }
@@ -635,7 +684,21 @@ impl FlowMatrix {
         period: Option<crate::lfms::ObservedPeriod>,
         path: &str,
     ) -> std::io::Result<()> {
-        let preamble = crate::lfms::format_preamble_with_period(link_type, context, period);
+        Self::write_rows_to_csv_with_filter(rows, link_type, context, period, None, path)
+    }
+
+    /// Variante d'un export partiel : `filter` décrit les flux retenus et
+    /// part dans le préambule `#LFMS` (`filter=`), pour qu'un fichier qui ne
+    /// porte pas tout le relevé le dise lui-même. `None` : export complet.
+    pub fn write_rows_to_csv_with_filter(
+        rows: &[FlowMatrixRow],
+        link_type: Option<packet_parser::LinkType>,
+        context: &crate::lfms::SurveyContext,
+        period: Option<crate::lfms::ObservedPeriod>,
+        filter: Option<&str>,
+        path: &str,
+    ) -> std::io::Result<()> {
+        let preamble = crate::lfms::format_preamble_with_filter(link_type, context, period, filter);
         write_csv_atomically(path, Some(preamble), |wtr| {
             for row in rows {
                 // Neutralisation au moment d'écrire, et non à la construction

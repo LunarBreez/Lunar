@@ -5,6 +5,7 @@
 //! les fichiers de provenance de chaque flux, et les labels portés par les
 //! fichiers sont réappliqués à la matrice reconstruite.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use packet_parser::LinkType;
@@ -234,6 +235,31 @@ pub fn survey_period_of_files<P: AsRef<Path>>(
     Ok(period)
 }
 
+/// Filtres d'export partiel déclarés par un fichier de matrice CSV (clé
+/// `filter=` du préambule `#LFMS`). Aucun pour un fichier complet, et pour un
+/// classeur XLSX, qui ne porte pas de préambule.
+pub fn matrix_file_filters(path: &Path) -> Result<BTreeSet<String>> {
+    #[cfg(feature = "xlsx")]
+    if crate::xlsx::is_xlsx(path) {
+        return Ok(BTreeSet::new());
+    }
+    Ok(lfms::read_preamble(path)?
+        .and_then(|preamble| preamble.filter)
+        .map(|declared| crate::matrix::split_filters(&declared).collect())
+        .unwrap_or_default())
+}
+
+/// Filtres d'export partiel d'un relevé reconstitué depuis des fichiers :
+/// réunion de ceux qu'ils déclarent. Un seul fichier partiel suffit à rendre
+/// le relevé partiel.
+pub fn survey_filters_of_files<P: AsRef<Path>>(paths: &[P]) -> Result<BTreeSet<String>> {
+    let mut filters = BTreeSet::new();
+    for path in paths {
+        filters.extend(matrix_file_filters(path.as_ref())?);
+    }
+    Ok(filters)
+}
+
 /// Fusionne plusieurs fichiers de matrice CSV en une matrice unique. Les
 /// fichiers doivent porter le même type de liaison (fusion inter-DLT refusée),
 /// que la matrice produite conserve, avec la réunion de leurs périodes.
@@ -241,9 +267,11 @@ pub fn merge_matrix_files(inputs: &[PathBuf]) -> Result<FlowMatrix> {
     let link_type = common_matrix_link_type(inputs)?;
     let files = read_matrix_rows_per_file(inputs)?;
     let period = survey_period_of_files(&files)?;
+    let partial = survey_filters_of_files(inputs)?;
     let rows: Vec<FlowMatrixRow> = files.into_iter().flat_map(|(_, rows)| rows).collect();
     let mut matrix = matrix_from_rows(&rows, link_type)?;
     matrix.period = period;
+    matrix.partial = partial;
     Ok(matrix)
 }
 
@@ -259,6 +287,86 @@ pub fn merge_matrix_files_to_csv(inputs: &[PathBuf], output: &Path) -> Result<us
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Un export partiel le dit dans son préambule, et le relevé reconstruit
+    /// depuis ce fichier reste partiel : seul ou fusionné avec un fichier
+    /// complet, puis réexporté.
+    #[test]
+    fn partial_export_stays_partial_through_reimport_merge_and_reexport() {
+        let dir = std::env::temp_dir().join(format!("lunar_partial_export_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("tempdir");
+
+        let full = merge_matrix_files(&[fixture("20260703_NP_Matrice.csv")]).expect("fixture");
+        assert!(
+            full.partial.is_empty(),
+            "un fichier complet ne déclare rien"
+        );
+        let all_rows = full.to_flat_vec();
+        let kept = full.to_flat_vec_where(|flow| {
+            flow.application
+                .as_ref()
+                .is_some_and(|application| application.protocol.eq_ignore_ascii_case("TLS"))
+        });
+        assert!(
+            !kept.is_empty() && kept.len() < all_rows.len(),
+            "filtre strict"
+        );
+        assert!(
+            kept.iter().all(|row| all_rows.contains(row)),
+            "les lignes retenues sont celles de l'export complet, inchangées"
+        );
+
+        let filter = "protocoles : TLS";
+        let partial_path = dir.join("partiel.csv");
+        FlowMatrix::write_rows_to_csv_with_filter(
+            &kept,
+            full.link_type,
+            &full.context,
+            full.period.known(),
+            full.export_filter(Some(filter)).as_deref(),
+            &partial_path.to_string_lossy(),
+        )
+        .expect("export partiel");
+        let preamble = lfms::read_preamble(&partial_path)
+            .expect("lisible")
+            .expect("préambule");
+        assert_eq!(preamble.filter.as_deref(), Some(filter));
+
+        let reimported = merge_matrix_files(std::slice::from_ref(&partial_path)).expect("réimport");
+        assert_eq!(reimported.row_count(), kept.len());
+        assert_eq!(
+            reimported.partial.iter().collect::<Vec<_>>(),
+            vec![filter],
+            "le relevé réimporté se sait partiel"
+        );
+
+        // Fusion avec un fichier complet : le relevé reste partiel, et un
+        // second filtre s'ajoute au premier sans le répéter.
+        let merged = merge_matrix_files(&[fixture("20260703_NP_Matrice.csv"), partial_path])
+            .expect("fusion");
+        assert_eq!(merged.export_filter(None).as_deref(), Some(filter));
+        assert_eq!(merged.export_filter(Some(filter)).as_deref(), Some(filter));
+        assert_eq!(
+            merged.export_filter(Some("recherche : « dns »")).as_deref(),
+            Some("protocoles : TLS | recherche : « dns »")
+        );
+
+        let reexport_path = dir.join("reexport.csv");
+        let mut twice = merged;
+        twice.partial.insert("recherche : « dns »".to_string());
+        twice
+            .export_to_csv(reexport_path.to_string_lossy().into_owned())
+            .expect("réexport");
+        let again = merge_matrix_files(&[reexport_path]).expect("relecture");
+        assert_eq!(
+            again.partial.iter().map(String::as_str).collect::<Vec<_>>(),
+            vec!["protocoles : TLS", "recherche : « dns »"],
+            "les filtres joints sont relus un par un"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn merged_files_carry_the_union_of_their_periods_or_none() {

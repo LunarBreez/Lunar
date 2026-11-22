@@ -97,6 +97,8 @@ menu_actions!(
     ExportSynthesis,
     /// Exporter les labels à compléter.
     ExportLabelsToComplete,
+    /// Exporter les seuls flux affichés.
+    ExportFilteredFlows,
     /// Recharger le relevé (investigation).
     ReloadSurvey,
     /// Raccourcis clavier (F1).

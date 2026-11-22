@@ -31,14 +31,17 @@ use gpui::{App, AppContext, Context, Entity, Focusable, Subscription, Window};
 use log::{error, info};
 use lunar_engine::errors::CaptureStateError;
 use lunar_engine::state::graph::GraphUpdate;
-use lunar_ui_logic::file_names::{labels_to_complete_csv_name, synthesis_html_name};
+use lunar_ui_logic::file_names::{
+    filtered_flows_csv_name, labels_to_complete_csv_name, synthesis_html_name,
+};
 use lunar_ui_logic::investigation::tables::{DeductionRow, EndpointRow, FlowRow};
 use lunar_ui_logic::investigation::view::{
-    DEDUCTION_COLUMNS, ENDPOINT_COLUMNS, ExportOutcome, FLOW_COLUMNS, InvestigationDerived,
+    DEDUCTION_COLUMNS, ENDPOINT_COLUMNS, ExportOutcome, FILTERED_DIALOG_FILTER,
+    FILTERED_DIALOG_TITLE, FILTERED_EXPORT_ERROR, FLOW_COLUMNS, InvestigationDerived,
     LABELS_DIALOG_FILTER, LABELS_DIALOG_TITLE, LABELS_EXPORT_ERROR, LabelCommand,
-    NO_DEDUCTION_TEXT, SAVE_LABEL_ERROR, SEARCH_PLACEHOLDER, SYNTHESIS_DIALOG_FILTER,
-    SYNTHESIS_DIALOG_TITLE, SYNTHESIS_EXPORT_ERROR, SortKey, label_command, labels_notice,
-    synthesis_notice,
+    NO_DEDUCTION_TEXT, NO_FILTER_ERROR, SAVE_LABEL_ERROR, SEARCH_PLACEHOLDER,
+    SYNTHESIS_DIALOG_FILTER, SYNTHESIS_DIALOG_TITLE, SYNTHESIS_EXPORT_ERROR, SortKey,
+    filtered_notice, label_command, labels_notice, synthesis_notice,
 };
 use lunar_ui_logic::investigation::{
     EpochMillis, InvestigationModel, ViewState, render_synthesis_html,
@@ -229,6 +232,7 @@ impl InvestigationView {
             match id {
                 MenuActionId::ExportSynthesis => self.export_synthesis(cx),
                 MenuActionId::ExportLabelsToComplete => self.export_labels_to_complete(cx),
+                MenuActionId::ExportFilteredFlows => self.export_filtered_flows(cx),
                 MenuActionId::ReloadSurvey => self.reload(cx),
                 _ => {}
             }
@@ -509,6 +513,74 @@ impl InvestigationView {
                             error!("[Investigation] export des labels à compléter : {err}");
                             let _ = app.update(cx, |app, cx| app.show_error(&err, cx));
                             ExportOutcome::Failed(LABELS_EXPORT_ERROR)
+                        }
+                    }
+                }
+            };
+            Self::finish_export(&app, &this, outcome, cx);
+        })
+        .detach();
+    }
+
+    /// Exporte en CSV les seuls flux affichés (filtre de protocoles et
+    /// recherche) : une matrice partielle, dont le préambule décrit le
+    /// filtre. Refusé sans filtre actif : c'est alors l'export complet.
+    pub fn export_filtered_flows(&mut self, cx: &mut Context<Self>) {
+        let Some(filter) = self.derived.filter_description.clone() else {
+            self.update_state(|state| state.error = NO_FILTER_ERROR.to_string(), cx);
+            return;
+        };
+        let importing = self.importing(cx);
+        let mut accepted = false;
+        self.update_state(|state| accepted = state.begin_export(importing), cx);
+        if !accepted {
+            return;
+        }
+        // Les flux affichés à l'instant de la demande, pas ceux d'après le
+        // sélecteur de fichiers.
+        let keys: std::collections::HashSet<String> =
+            self.derived.visible_flow_keys.iter().cloned().collect();
+        let app = self.app.clone();
+        Self::set_import_lock(&app, true, cx);
+        let now = local_date_time(EpochMillis::now(), &SystemZone);
+        let (filter_name, extensions) = FILTERED_DIALOG_FILTER;
+        let dialog = rfd::AsyncFileDialog::new()
+            .set_title(FILTERED_DIALOG_TITLE)
+            .add_filter(filter_name, extensions)
+            .set_file_name(filtered_flows_csv_name(&now))
+            .save_file();
+        let lunar = self.bridge.lunar().clone();
+        cx.spawn(async move |this, cx| {
+            let outcome = match dialog.await {
+                None => {
+                    info!("[Investigation] export des flux affichés annulé");
+                    ExportOutcome::Cancelled
+                }
+                Some(file) => {
+                    let path = path_text(with_extension(file.path(), "csv", &["csv"]));
+                    let target = path.clone();
+                    let description = filter.clone();
+                    let count = cx
+                        .background_executor()
+                        .spawn(async move {
+                            lunar.export_csv_filtered(target, &keys, &description)
+                        })
+                        .await;
+                    match count {
+                        Ok(count) => {
+                            info!(
+                                "[Investigation] flux affichés : {count} ligne(s) exportée(s) vers {path}, filtre « {filter} »"
+                            );
+                            ExportOutcome::Done(filtered_notice(
+                                u64::try_from(count).unwrap_or(u64::MAX),
+                                &path,
+                                &filter,
+                            ))
+                        }
+                        Err(err) => {
+                            error!("[Investigation] export des flux affichés : {err}");
+                            let _ = app.update(cx, |app, cx| app.show_error(&err, cx));
+                            ExportOutcome::Failed(FILTERED_EXPORT_ERROR)
                         }
                     }
                 }

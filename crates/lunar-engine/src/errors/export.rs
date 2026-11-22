@@ -35,6 +35,10 @@ pub enum ExportError {
     /// il n'est pas écrasé en silence ; porte le chemin de ce CSV.
     #[error("Le fichier {0} existe déjà : choisissez un autre nom pour la synthèse")]
     CsvAlreadyExists(String),
+    /// Export partiel demandé sans description de son filtre : refusé, le
+    /// fichier passerait pour un relevé complet.
+    #[error("Un export partiel doit décrire son filtre")]
+    MissingFilter,
 }
 
 /// Représentation sérialisable de [`ExportError`] (forme `{ kind, message }`).
@@ -58,6 +62,8 @@ pub enum ExportErrorKind {
     NotHtml,
     /// `{ kind: "csvAlreadyExists", message }` : chemin du CSV existant.
     CsvAlreadyExists(String),
+    /// `{ kind: "missingFilter" }`, sans charge utile.
+    MissingFilter,
 }
 
 impl<T> From<std::sync::PoisonError<T>> for ExportError {

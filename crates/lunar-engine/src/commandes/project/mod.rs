@@ -198,7 +198,7 @@ fn write_snapshot(
     capture_state: &Arc<Mutex<CaptureState>>,
     dest: &Path,
 ) -> Result<(ProjectManifest, u64), CaptureStateError> {
-    let (rows, link_type, labels, context, period) = {
+    let (rows, link_type, labels, context, period, filter) = {
         let matrix = matrice.lock()?;
         (
             matrix.to_flat_vec(),
@@ -206,6 +206,7 @@ fn write_snapshot(
             matrix.export_labels(),
             matrix.context.clone(),
             matrix.period.known(),
+            matrix.export_filter(None),
         )
     };
     // La révision est capturée avec le snapshot : des modifications arrivées
@@ -236,7 +237,15 @@ fn write_snapshot(
     };
 
     write_project_archive(
-        dest, &manifest, &rows, link_type, &context, period, &labels, &settings,
+        dest,
+        &manifest,
+        &rows,
+        link_type,
+        &context,
+        period,
+        filter.as_deref(),
+        &labels,
+        &settings,
     )?;
     Ok((manifest, revision))
 }
@@ -524,6 +533,7 @@ fn write_project_archive(
     link_type: Option<packet_parser::LinkType>,
     context: &lunar_flows_core::lfms::SurveyContext,
     period: Option<lunar_flows_core::lfms::ObservedPeriod>,
+    filter: Option<&str>,
     labels: &[(String, String, String)],
     settings: &ProjectCaptureSettings,
 ) -> Result<(), CaptureStateError> {
@@ -539,12 +549,15 @@ fn write_project_archive(
         // Le contexte et la période du relevé voyagent dans le préambule
         // `#LFMS` de la matrice embarquée, pas seulement dans le manifest : la
         // matrice extraite seule de l'archive reste qualifiée, et la période
-        // revient à l'ouverture du projet (réimport de cette matrice).
-        FlowMatrix::write_rows_to_csv_with_context(
+        // revient à l'ouverture du projet (réimport de cette matrice). Il en
+        // va de même du filtre d'un relevé partiel : c'est par ce préambule
+        // qu'un projet rouvert se sait encore partiel.
+        FlowMatrix::write_rows_to_csv_with_filter(
             rows,
             link_type,
             context,
             period,
+            filter,
             &matrix_csv.to_string_lossy(),
         )?;
         let labels_csv = staging.join(LABELS_ENTRY);
@@ -807,6 +820,163 @@ mod tests {
     use crate::commandes::import::import_matrix_files;
     use crate::state::flow_matrix::FlowMatrixRow;
 
+    /// Export des seuls flux affichés, joué via les vraies commandes : le
+    /// fichier ne porte que les lignes des arêtes choisies, il le dit dans
+    /// son préambule, et le relevé reconstruit depuis ce fichier reste
+    /// partiel à travers un réimport, un projet et un export complet.
+    #[test]
+    fn filtered_export_is_marked_partial_and_the_mark_survives_reimport_and_project() {
+        use crate::commandes::export::csv::{export_csv, export_csv_filtered};
+        use std::collections::HashSet;
+
+        let matrix = Arc::new(Mutex::new(FlowMatrix::new()));
+        let graph = Arc::new(Mutex::new(crate::state::graph::GraphData::new()));
+        let labels = Arc::new(Mutex::new(LabelStore::new()));
+        let pcinfo = Arc::new(Mutex::new(PcInfoLabel::new()));
+        let capture_state = Arc::new(Mutex::new(CaptureState::new()));
+        let conflicts = Arc::new(Mutex::new(
+            crate::commandes::import::LabelConflictStore::default(),
+        ));
+        let config_dir = unique_temp_dir("test_partial_config").unwrap();
+        let dir = unique_temp_dir("test_partial").unwrap();
+        let import = |path: &Path| {
+            import_matrix_files(
+                vec![path.to_string_lossy().into_owned()],
+                &matrix,
+                &graph,
+                &labels,
+                &capture_state,
+                Channel::new(|_| {}),
+            )
+        };
+        let declared_filter = |path: &Path| {
+            lunar_flows_core::lfms::read_preamble(path)
+                .expect("préambule lisible")
+                .expect("préambule présent")
+                .filter
+        };
+
+        let source = crate::test_support::fixtures().join("20260703_NP_Matrice.csv");
+        import(&source).expect("import de la fixture");
+        assert!(
+            matrix.lock().unwrap().partial.is_empty(),
+            "fixture complète"
+        );
+        let rows_before = matrix.lock().unwrap().to_flat_vec();
+
+        // Chaque flux de la matrice retrouve son arête : c'est ce qui permet
+        // de traduire « les arêtes affichées » en lignes à exporter.
+        let edge_keys: HashSet<String> = graph.lock().unwrap().edges.keys().cloned().collect();
+        let flow_edge_keys: HashSet<String> = matrix
+            .lock()
+            .unwrap()
+            .matrix
+            .keys()
+            .map(lunar_flows_core::graph::edge_key_of_flow)
+            .collect();
+        assert_eq!(flow_edge_keys, edge_keys, "flux et arêtes se correspondent");
+
+        // Les arêtes TLS, comme si le filtre de protocoles ne gardait qu'elles.
+        let tls_edges: HashSet<String> = graph
+            .lock()
+            .unwrap()
+            .edges
+            .iter()
+            .filter(|(_, edge)| edge.label == "TLS")
+            .map(|(key, _)| key.clone())
+            .collect();
+        let tls_rows: Vec<&FlowMatrixRow> = rows_before
+            .iter()
+            .filter(|row| row.application_protocol.as_deref() == Some("TLS"))
+            .collect();
+        assert!(!tls_edges.is_empty() && tls_rows.len() < rows_before.len());
+
+        // Sans description, pas d'export partiel anonyme.
+        let partial_path = dir.join("flux TLS.csv");
+        let partial = partial_path.to_string_lossy().into_owned();
+        assert!(matches!(
+            export_csv_filtered(&matrix, partial.clone(), &tls_edges, "  "),
+            Err(CaptureStateError::Export(ExportError::MissingFilter))
+        ));
+        assert!(!partial_path.exists(), "rien n'est écrit sur un refus");
+
+        let filter = "protocoles : TLS";
+        let written = export_csv_filtered(&matrix, partial, &tls_edges, filter)
+            .expect("export des flux affichés");
+        assert_eq!(
+            written,
+            tls_rows.len(),
+            "seules les lignes TLS sont écrites"
+        );
+        assert_eq!(declared_filter(&partial_path).as_deref(), Some(filter));
+
+        // Réimport : mêmes flux, et le relevé se sait partiel.
+        import(&partial_path).expect("réimport de l'export partiel");
+        {
+            let reimported = matrix.lock().unwrap();
+            assert_eq!(reimported.row_count(), tls_rows.len());
+            assert_eq!(
+                reimported
+                    .partial
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>(),
+                vec![filter]
+            );
+        }
+
+        // Exporter tout un relevé partiel ne le rend pas complet.
+        let full_path = dir.join("tout.csv");
+        export_csv(&matrix, full_path.to_string_lossy().into_owned()).expect("export complet");
+        assert_eq!(declared_filter(&full_path).as_deref(), Some(filter));
+
+        // Projet : la marque revient à l'ouverture, après un état vidé.
+        let project_path = dir.join("partiel.lunar");
+        save_project(
+            &matrix,
+            &capture_state,
+            project_path.to_string_lossy().into_owned(),
+        )
+        .expect("enregistrement du projet");
+        matrix.lock().unwrap().clear();
+        graph.lock().unwrap().clear();
+        assert!(
+            matrix.lock().unwrap().partial.is_empty(),
+            "clear efface la marque"
+        );
+        open_project(
+            &config_dir,
+            &matrix,
+            &graph,
+            &labels,
+            &pcinfo,
+            &capture_state,
+            &conflicts,
+            Channel::new(|_| {}),
+            project_path.to_string_lossy().into_owned(),
+        )
+        .expect("ouverture du projet");
+        assert_eq!(
+            matrix
+                .lock()
+                .unwrap()
+                .partial
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec![filter],
+            "le projet rouvert reste partiel"
+        );
+
+        // Un relevé complet réimporté efface la marque : elle vient des
+        // fichiers, jamais de la session précédente.
+        import(&source).expect("import de la fixture");
+        assert!(matrix.lock().unwrap().partial.is_empty());
+
+        remove_temp_dir(&dir);
+        remove_temp_dir(&config_dir);
+    }
+
     /// Aller-retour joué via les vraies commandes : un relevé importé
     /// puis enregistré comme projet se rouvre avec une matrice identique
     /// après un « redémarrage » (état vidé), et le suivi dirty suit chaque
@@ -1062,6 +1232,7 @@ mod tests {
             &rows,
             link_type,
             context,
+            None,
             None,
             &labels,
             &sample_settings(),

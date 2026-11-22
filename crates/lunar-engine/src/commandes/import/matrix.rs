@@ -304,6 +304,9 @@ pub fn import_matrix_files(
         .map(|(path, rows)| (path.clone(), rows.len()))
         .collect();
     let survey_period = lunar_flows_core::csv::survey_period_of_files(&files)?;
+    // Un fichier issu d'un export partiel le déclare dans son préambule : le
+    // relevé reconstruit le reste, même fusionné avec des fichiers complets.
+    let partial_filters = lunar_flows_core::csv::survey_filters_of_files(&incoming_file_paths)?;
     let rows: Vec<FlowMatrixRow> = files.into_iter().flat_map(|(_, rows)| rows).collect();
 
     // Snapshot transactionnel local : labels, matrice et graphe sont bâtis
@@ -349,6 +352,8 @@ pub fn import_matrix_files(
     // d'eux porte des lignes sans la déclarer. Posée APRÈS la reconstruction,
     // qui vide la matrice (`clear` remet la période à zéro).
     new_matrix.period = survey_period;
+    // Idem pour les filtres d'export partiel, que `clear` efface aussi.
+    new_matrix.partial = partial_filters;
 
     import_guard.verify_current("commit de l'import de matrice")?;
 

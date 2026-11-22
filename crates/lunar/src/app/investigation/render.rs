@@ -168,6 +168,15 @@ impl InvestigationView {
                         this.export_labels_to_complete(cx)
                     })),
             )
+            .child(
+                Button::new("investigation-flux-affiches", "Flux affichés")
+                    .icon(Icon::FileSpreadsheet)
+                    .disabled(busy || self.derived.filter_description.is_none())
+                    .tooltip("Exporter en CSV les seuls flux affichés (protocoles cochés et recherche) : matrice partielle, signalée comme telle dans son préambule et à son réimport")
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.export_filtered_flows(cx)
+                    })),
+            )
             .child(self.render_filter(theme, window, cx))
             // Un espaceur plutôt que `margin-left: auto` : taffy 0.9 perd les
             // `gap` d'une ligne dès qu'une marge automatique y figure.

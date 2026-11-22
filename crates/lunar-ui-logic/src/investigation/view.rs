@@ -246,6 +246,12 @@ pub const BUSY_ERROR: &str =
     "Une opération d'importation ou de sauvegarde est déjà en cours. Veuillez patienter.";
 /// Message d'échec de l'export des labels à compléter.
 pub const LABELS_EXPORT_ERROR: &str = "L'export des labels à compléter a échoué.";
+/// Message d'échec de l'export des flux affichés.
+pub const FILTERED_EXPORT_ERROR: &str = "L'export des flux affichés a échoué.";
+/// Message quand l'export des flux affichés est demandé sans filtre actif.
+pub const NO_FILTER_ERROR: &str = "Aucun filtre actif : décochez des protocoles ou saisissez une recherche, ou exportez la matrice complète depuis la vue d'analyse.";
+/// Titre de l'avertissement d'un relevé issu d'un export partiel.
+pub const PARTIAL_SURVEY_TITLE: &str = "Relevé partiel";
 /// Message d'échec de l'export de la synthèse.
 pub const SYNTHESIS_EXPORT_ERROR: &str = "L'export de la synthèse a échoué.";
 /// Message d'échec de l'enregistrement d'un label.
@@ -391,6 +397,30 @@ impl ViewState {
     /// Vrai si aucun protocole n'est décoché.
     pub fn all_protocols_visible(&self) -> bool {
         self.hidden_protocols.is_empty()
+    }
+
+    /// Description en clair du filtre appliqué au tableau des flux
+    /// (protocoles cochés parmi `options`, recherche), telle qu'elle part
+    /// dans le préambule d'un export des flux affichés ; `None` sans filtre.
+    pub fn filter_description(&self, options: &[ProtocolCount]) -> Option<String> {
+        let mut parts = Vec::new();
+        let visible: Vec<&str> = options
+            .iter()
+            .map(|option| option.protocol.as_str())
+            .filter(|protocol| self.is_protocol_visible(protocol))
+            .collect();
+        if visible.len() < options.len() {
+            parts.push(if visible.is_empty() {
+                "protocoles : aucun".to_string()
+            } else {
+                format!("protocoles : {}", visible.join(", "))
+            });
+        }
+        let query = js_trim(&self.query);
+        if !query.is_empty() {
+            parts.push(format!("recherche : « {query} »"));
+        }
+        (!parts.is_empty()).then(|| parts.join(" ; "))
     }
 
     /// Vrai si la colonne n'est pas masquée.
@@ -819,6 +849,10 @@ pub const SYNTHESIS_DIALOG_FILTER: (&str, &[&str]) = ("Page HTML", &["html"]);
 pub const LABELS_DIALOG_TITLE: &str = "Exporter les labels à compléter";
 /// Filtre du sélecteur de l'export des labels à compléter.
 pub const LABELS_DIALOG_FILTER: (&str, &[&str]) = ("Labels CSV", &["csv"]);
+/// Titre du sélecteur de l'export des flux affichés.
+pub const FILTERED_DIALOG_TITLE: &str = "Exporter les flux affichés";
+/// Filtre du sélecteur de l'export des flux affichés.
+pub const FILTERED_DIALOG_FILTER: (&str, &[&str]) = ("Matrice CSV", &["csv"]);
 
 /// Nom proposé pour la page de synthèse (`date` : `AAAAMMJJ`, cf.
 /// [`super::dates::current_date`]).
@@ -851,6 +885,30 @@ pub fn labels_notice(count: u64, path: &str) -> String {
         "{count} équipement(s) sans label exporté(s) dans {} : complétez la colonne label, puis réimportez le fichier (Import de labels).",
         file_name_of(path)
     )
+}
+
+/// Compte rendu d'un export des flux affichés réussi.
+pub fn filtered_notice(count: u64, path: &str, filter: &str) -> String {
+    format!(
+        "{count} ligne(s) de flux exportée(s) dans {} (matrice partielle, filtre « {filter} »).",
+        file_name_of(path)
+    )
+}
+
+/// Avertissement à montrer quand le relevé chargé vient d'exports partiels
+/// (`filters` : leurs filtres, lus dans les préambules) ; `None` s'il est
+/// complet.
+pub fn partial_survey_message(filters: &[String]) -> Option<String> {
+    if filters.is_empty() {
+        return None;
+    }
+    let list: String = filters
+        .iter()
+        .map(|filter| format!("\n• {filter}"))
+        .collect();
+    Some(format!(
+        "Ce relevé provient d'un export partiel : il ne contient que les flux retenus par le filtre suivant.{list}\n\nLes flux écartés à l'export sont absents ; les exports faits depuis ce relevé le rediront dans leur préambule."
+    ))
 }
 
 /// Indicateur du bandeau.
@@ -947,6 +1005,10 @@ pub struct InvestigationDerived {
     pub deduction_rows: Vec<DeductionRow>,
     /// Flux affichés : recherche puis tri.
     pub visible_flows: Vec<FlowRow>,
+    /// Clés d'arête des flux affichés : ce qu'exporte « flux affichés ».
+    pub visible_flow_keys: Vec<String>,
+    /// Filtre appliqué aux flux, en clair ; `None` si tout est affiché.
+    pub filter_description: Option<String>,
     /// Endpoints affichés.
     pub visible_endpoints: Vec<EndpointRow>,
     /// Déductions affichées.
@@ -1145,6 +1207,8 @@ impl InvestigationModel {
         };
 
         InvestigationDerived {
+            visible_flow_keys: visible_flows.iter().map(|row| row.id.clone()).collect(),
+            filter_description: state.filter_description(&protocol_options),
             filter_label: state.filter_button_label(&protocol_options),
             protocol_options,
             stats,
@@ -1651,6 +1715,61 @@ mod tests {
             labels_notice(3, r"D:\labels.csv"),
             "3 équipement(s) sans label exporté(s) dans labels.csv : complétez la colonne label, puis réimportez le fichier (Import de labels)."
         );
+    }
+
+    #[test]
+    fn description_du_filtre_des_flux_affiches() {
+        let options = vec![
+            ProtocolCount {
+                protocol: "TLS".to_string(),
+                flows: 3,
+            },
+            ProtocolCount {
+                protocol: "DNS".to_string(),
+                flows: 2,
+            },
+            ProtocolCount {
+                protocol: "ARP".to_string(),
+                flows: 1,
+            },
+        ];
+        let mut state = ViewState::default();
+        assert_eq!(state.filter_description(&options), None, "sans filtre");
+
+        state.query = "  10.0.0.1 ".to_string();
+        assert_eq!(
+            state.filter_description(&options).as_deref(),
+            Some("recherche : « 10.0.0.1 »")
+        );
+
+        state.toggle_protocol("ARP");
+        assert_eq!(
+            state.filter_description(&options).as_deref(),
+            Some("protocoles : TLS, DNS ; recherche : « 10.0.0.1 »")
+        );
+
+        state.query.clear();
+        state.toggle_protocol("TLS");
+        state.toggle_protocol("DNS");
+        assert_eq!(
+            state.filter_description(&options).as_deref(),
+            Some("protocoles : aucun")
+        );
+    }
+
+    #[test]
+    fn textes_de_l_export_partiel() {
+        assert_eq!(
+            filtered_notice(12, "/tmp/x/partiel.csv", "protocoles : TLS"),
+            "12 ligne(s) de flux exportée(s) dans partiel.csv (matrice partielle, filtre « protocoles : TLS »)."
+        );
+        assert_eq!(partial_survey_message(&[]), None);
+        let message = partial_survey_message(&[
+            "protocoles : TLS".to_string(),
+            "recherche : « srv »".to_string(),
+        ])
+        .expect("relevé partiel");
+        assert!(message.contains("\n• protocoles : TLS\n• recherche : « srv »\n"));
     }
 
     #[test]

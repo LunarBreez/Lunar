@@ -311,6 +311,25 @@ impl Lunar {
         commandes::export::csv::export_csv(&self.flow_matrix, path)
     }
 
+    /// Exporte en CSV les seuls flux des arêtes `edge_keys` du graphe (clés
+    /// de la map des arêtes, celles des lignes du tableau des flux) ;
+    /// `description` décrit le filtre et part dans le préambule du fichier.
+    /// Retourne le nombre de lignes écrites.
+    pub fn export_csv_filtered(
+        &self,
+        path: String,
+        edge_keys: &std::collections::HashSet<String>,
+        description: &str,
+    ) -> Result<usize, CaptureStateError> {
+        commandes::export::csv::export_csv_filtered(&self.flow_matrix, path, edge_keys, description)
+    }
+
+    /// Filtres des exports partiels dont le relevé courant est issu ; vide
+    /// si rien n'indique qu'il soit incomplet.
+    pub fn partial_filters(&self) -> Result<Vec<String>, CaptureStateError> {
+        Ok(self.flow_matrix.lock()?.partial.iter().cloned().collect())
+    }
+
     /// Écrit le CSV voisin d'une synthèse HTML et rend de quoi composer la
     /// page.
     pub fn export_synthesis_matrix(

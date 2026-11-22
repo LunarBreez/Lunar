@@ -184,6 +184,10 @@ pub struct LfmsPreamble {
     /// Période observée (`first_seen=` / `last_seen=`), absente d'un fichier
     /// qui ne la déclare pas ou d'une matrice sans paquet daté.
     pub period: Option<ObservedPeriod>,
+    /// Filtre d'un export partiel (`filter=`) : le fichier ne porte que les
+    /// flux retenus par ce filtre, décrit en clair. Absent d'un export
+    /// complet.
+    pub filter: Option<String>,
 }
 
 /// Encode une valeur libre pour tenir dans un champ `clé=valeur` séparé par
@@ -268,6 +272,19 @@ pub fn format_preamble_with_period(
     context: &SurveyContext,
     period: Option<ObservedPeriod>,
 ) -> String {
+    format_preamble_with_filter(link_type, context, period, None)
+}
+
+/// Préambule d'un export éventuellement partiel : type de liaison, contexte,
+/// période observée et, si l'export ne porte qu'une partie des flux, le
+/// filtre qui les a retenus (`filter=`, percent-encodé). Un filtre vide
+/// n'émet aucune clé : l'export complet reste la même ligne qu'avant.
+pub fn format_preamble_with_filter(
+    link_type: Option<LinkType>,
+    context: &SurveyContext,
+    period: Option<ObservedPeriod>,
+    filter: Option<&str>,
+) -> String {
     let mut line = format_preamble_with_context(link_type, context);
     if let Some(period) = period {
         line.push_str(&format!(
@@ -275,6 +292,9 @@ pub fn format_preamble_with_period(
             format_timestamp(period.first),
             format_timestamp(period.last)
         ));
+    }
+    if let Some(filter) = filter.map(str::trim).filter(|filter| !filter.is_empty()) {
+        line.push_str(&format!(" filter={}", encode_value(filter)));
     }
     line
 }
@@ -317,6 +337,7 @@ pub fn parse_preamble(line: &str) -> std::result::Result<Option<LfmsPreamble>, S
     let mut context = SurveyContext::default();
     let mut first_seen: Option<SystemTime> = None;
     let mut last_seen: Option<SystemTime> = None;
+    let mut filter: Option<String> = None;
     for field in fields.split_whitespace() {
         let Some((key, value)) = field.split_once('=') else {
             return Err(format!("champ de préambule invalide : « {field} »"));
@@ -333,6 +354,11 @@ pub fn parse_preamble(line: &str) -> std::result::Result<Option<LfmsPreamble>, S
             "interface" => context.interface = Some(decode_value(value)?),
             "first_seen" => first_seen = Some(parse_timestamp(key, value)?),
             "last_seen" => last_seen = Some(parse_timestamp(key, value)?),
+            // Une clé `filter=` vide ne déclare rien : seul un filtre décrit
+            // marque le fichier comme partiel.
+            "filter" => {
+                filter = Some(decode_value(value)?).filter(|text| !text.trim().is_empty());
+            }
             // Clés inconnues tolérées : un fichier plus récent reste lisible.
             _ => {}
         }
@@ -361,6 +387,7 @@ pub fn parse_preamble(line: &str) -> std::result::Result<Option<LfmsPreamble>, S
         link_type,
         context,
         period,
+        filter,
     }))
 }
 
@@ -420,6 +447,51 @@ mod tests {
 
     fn at(secs: u64, micros: u64) -> SystemTime {
         UNIX_EPOCH + Duration::from_secs(secs) + Duration::from_micros(micros)
+    }
+
+    /// Le filtre d'un export partiel traverse le préambule tel quel, espaces,
+    /// accents et `=` compris, et un export complet reste l'ancienne ligne.
+    #[test]
+    fn filter_round_trips_through_the_preamble_and_is_absent_from_a_full_export() {
+        let filter = "protocoles : TLS, DNS ; recherche : « 10.0.0 = prod »";
+        let line = format_preamble_with_filter(
+            Some(LinkType::ETHERNET),
+            &SurveyContext::default(),
+            None,
+            Some(filter),
+        );
+        assert!(
+            line.starts_with("#LFMS version=2 dlt=ETHERNET filter=protocoles%20%3A%20TLS"),
+            "{line}"
+        );
+        assert_eq!(line.split_whitespace().count(), 4, "une seule clé de plus");
+        let parsed = parse_preamble(&line).expect("lisible").expect("préambule");
+        assert_eq!(parsed.filter.as_deref(), Some(filter));
+
+        for absent in [None, Some(""), Some("   ")] {
+            assert_eq!(
+                format_preamble_with_filter(
+                    Some(LinkType::ETHERNET),
+                    &SurveyContext::default(),
+                    None,
+                    absent,
+                ),
+                format_preamble(Some(LinkType::ETHERNET)),
+                "un filtre absent ou vide n'émet aucune clé"
+            );
+        }
+        let full = parse_preamble("#LFMS version=2 dlt=ETHERNET")
+            .expect("lisible")
+            .expect("préambule");
+        assert_eq!(full.filter, None);
+        let empty = parse_preamble("#LFMS version=2 dlt=ETHERNET filter=")
+            .expect("lisible")
+            .expect("préambule");
+        assert_eq!(empty.filter, None, "une clé vide ne déclare rien");
+        assert!(
+            parse_preamble("#LFMS version=2 filter=%ZZ").is_err(),
+            "un filtre illisible n'est pas deviné"
+        );
     }
 
     #[test]

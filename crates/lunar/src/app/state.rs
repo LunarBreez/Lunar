@@ -32,6 +32,7 @@ use lunar_engine::setup::system_info::{CPU_SAMPLE_PERIOD, CpuSampler};
 use lunar_engine::state::graph::GraphUpdate;
 use lunar_ui_logic::capture_store::{CaptureStore, StoreEffect};
 use lunar_ui_logic::errors::{ErrorMessage, capture_error_message};
+use lunar_ui_logic::investigation::view::{PARTIAL_SURVEY_TITLE, partial_survey_message};
 use lunar_ui_logic::live_capture::LiveCapture;
 use lunar_ui_logic::menu::{MenuActionId, MenuContext, MenuView, is_action_enabled};
 
@@ -429,6 +430,26 @@ impl AppState {
             .detach();
     }
 
+    /// Prévient si le relevé qui vient d'être chargé (import de matrices,
+    /// ouverture de projet) provient d'un export partiel.
+    pub fn warn_if_partial(&mut self, cx: &mut Context<Self>) {
+        self.bridge
+            .run(
+                cx,
+                |lunar| lunar.partial_filters(),
+                |this, filters, cx| match filters {
+                    Ok(filters) => {
+                        if let Some(message) = partial_survey_message(&filters) {
+                            warn!("Relevé partiel, filtres : {}", filters.join(" | "));
+                            this.show_message(PARTIAL_SURVEY_TITLE, message, cx);
+                        }
+                    }
+                    Err(err) => warn!("partial_filters a échoué : {err}"),
+                },
+            )
+            .detach();
+    }
+
     /// Lit l'interface configurée.
     fn load_capture_config(&mut self, cx: &mut Context<Self>) {
         self.bridge
@@ -650,9 +671,10 @@ impl AppState {
                 info!("Fermeture demandée");
                 self.request_exit(cx);
             }
-            A::ExportSynthesis | A::ExportLabelsToComplete | A::ReloadSurvey => {
-                cx.emit(AppEvent::InvestigationAction(id))
-            }
+            A::ExportSynthesis
+            | A::ExportLabelsToComplete
+            | A::ExportFilteredFlows
+            | A::ReloadSurvey => cx.emit(AppEvent::InvestigationAction(id)),
             A::OpenProject => self.open_project_dialog(cx),
             A::SaveProject => self.save_project_dialog(cx),
             A::ExportCsv => self.export_csv_dialog(cx),
@@ -960,6 +982,7 @@ impl AppState {
                 Ok(()) => {
                     info!("Relevé récupéré depuis l'autosave");
                     this.refresh_flags(cx);
+                    this.warn_if_partial(cx);
                 }
                 Err(err) => {
                     error!("Récupération impossible: {err}");

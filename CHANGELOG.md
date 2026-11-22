@@ -10,6 +10,11 @@ Les versions suivent le format `## **[X.Y.Z] - AAAA-MM-JJ**`. L'entrée
 - **Matrices hostiles** : les comptes de paquets saturent au lieu de déborder
   quand un fichier importé annonce des totaux au-delà de la capacité d'un
   compteur.
+- **Export des flux affichés** : la vue d'investigation exporte en CSV les
+  seuls flux retenus par le filtre de protocoles et la recherche. Le
+  préambule du fichier décrit le filtre (`filter=`) ; à son réimport, LUNAR
+  prévient que le relevé est partiel, et il le reste dans les projets et les
+  exports qui en sont tirés.
 - **Changelog** : l'entrée « Changelog » du menu Aide affiche les notes de la
   dernière version au lieu de « Fonction à venir ».
 - **Fuzzing** : cibles cargo-fuzz sur les lecteurs de fichiers non fiables
