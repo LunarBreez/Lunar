@@ -94,7 +94,7 @@ cargo fmt --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 script/build-windows-check.sh          # clippy et .exe Windows (cargo-xwin)
-script/fuzz/smoke.sh                   # fuzzing borné des lecteurs de fichiers
+script/fuzz/smoke.sh                   # fuzzing borné des lecteurs et des trames
 script/ci/tests/test-check-binary-is-passive.sh
 script/ci/check-binary-is-passive.sh target/release/lunar
 ```
@@ -153,7 +153,7 @@ DBUS_SESSION_BUS_ADDRESS -u XAUTHORITY`).
   - dépendances : `cargo deny check` (avis RustSec, licences, sources), selon
     `deny.toml` ;
   - fuzzing borné des lecteurs de fichiers non fiables (capture PCAP, matrice
-    CSV, relevé WinAudit), 90 s par cible ;
+    CSV, relevé WinAudit) et du décodage des trames, 90 s par cible ;
   - garde-fous de release : le contrôle de passivité est éprouvé sur des
     binaires fabriqués pour émettre, qu'il doit refuser.
 - **`.github/workflows/release.yml`**, au push d'un tag `vX.Y.Z` égal à la

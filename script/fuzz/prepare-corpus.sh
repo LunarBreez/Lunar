@@ -12,7 +12,8 @@ fuzz="$root/crates/lunar-flows-core/fuzz"
 pcap_corpus="$fuzz/corpus/pcap_reader"
 matrix_corpus="$fuzz/corpus/matrix_reader"
 winaudit_corpus="$fuzz/corpus/winaudit_reader"
-mkdir -p -- "$pcap_corpus" "$matrix_corpus" "$winaudit_corpus"
+frames_corpus="$fuzz/corpus/packet_frames"
+mkdir -p -- "$pcap_corpus" "$matrix_corpus" "$winaudit_corpus" "$frames_corpus"
 
 # --- pcap_reader ------------------------------------------------------------
 # Petites captures : Ethernet, VLAN, IP nu, boucle locale, tunnels (CAPWAP,
@@ -52,6 +53,13 @@ head -c 12 -- "$tshark/vlan.pcap" >"$pcap_corpus/truncated_global_header.pcap"
 vlan_size="$(wc -c <"$tshark/vlan.pcap")"
 ((vlan_size > 8)) || { echo "fixture vlan.pcap trop petite" >&2; exit 1; }
 head -c "$((vlan_size - 8))" -- "$tshark/vlan.pcap" >"$pcap_corpus/truncated_packet.pcap"
+
+# --- packet_frames ----------------------------------------------------------
+# Trames individuelles des captures pcap classiques du corpus TShark et des
+# fixtures, chacune précédée de l'octet de son type de liaison : au plus 40
+# par capture. Les pcapng ne donnent rien ici (lus par `pcap_reader`).
+find "$tshark" "$fixtures" -maxdepth 1 -type f -name '*.pcap' -print0 | sort -z |
+  xargs -0 python3 "$root/script/fuzz/extract-frames.py" "$frames_corpus"
 
 # --- matrix_reader ----------------------------------------------------------
 header="mac_source,mac_destination,vlan_id,protocol_data_link,ip_source,ip_source_type,label_source,ip_destination,ip_destination_type,label_destination,port_source,port_destination,protocol_transport,application_protocol,count,total_bytes,last_seen,encap_id,origin"
@@ -102,13 +110,13 @@ iconv -f UTF-16 -t UTF-8 "$survey" >"$winaudit_corpus/utf8.csv"
 # --- Graines de régression --------------------------------------------------
 # Chaque crash corrigé reste dans le corpus : regressions/<cible>/ est
 # versionné et recopié ici.
-for target in pcap_reader matrix_reader winaudit_reader; do
+for target in pcap_reader matrix_reader winaudit_reader packet_frames; do
   if compgen -G "$fuzz/regressions/$target/*" >/dev/null; then
     cp -- "$fuzz/regressions/$target"/* "$fuzz/corpus/$target/"
   fi
 done
 
-for target in pcap_reader matrix_reader winaudit_reader; do
+for target in pcap_reader matrix_reader winaudit_reader packet_frames; do
   printf 'Corpus %s : %s graines\n' "$target" \
     "$(find "$fuzz/corpus/$target" -maxdepth 1 -type f | wc -l)"
 done

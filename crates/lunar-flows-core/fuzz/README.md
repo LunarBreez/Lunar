@@ -1,7 +1,7 @@
 # Fuzzing de `lunar-flows-core`
 
 Les cibles injectent des octets arbitraires dans les lecteurs de fichiers non
-fiables, par la même chaîne que l'application. Un fichier refusé est un
+fiables et dans le décodage des trames, par la même chaîne que l'application. Un fichier refusé est un
 résultat normal ; un panic, un crash, une erreur de sanitizer ou un blocage
 est un défaut.
 
@@ -10,6 +10,7 @@ est un défaut.
 | `pcap_reader` | Ouverture libpcap, contrôle du type de liaison, lecture exhaustive, `packet_parser`, agrégation dans `FlowMatrix`, puis lignes à plat et graphe. |
 | `matrix_reader` | Préambule `#LFMS`, lignes CSV validées champ par champ, reconstruction des flux et de leurs tunnels, fusion, labels, puis lignes à plat et graphe. |
 | `winaudit_reader` | Décodage (UTF-16, UTF-8), détection du séparateur, rubriques lues par position, filtrage des adaptateurs, arbitrage entre relevés. |
+| `packet_frames` | Une trame brute et son type de liaison, sans libpcap ni format de fichier : décodeurs de `packet_parser`, puis dépliage des tunnels en niveaux de flux, comme en capture directe. |
 
 L'import XLSX n'a pas de cible : passé le conteneur ZIP (calamine), il rejoint
 le lecteur de `matrix_reader`. Une cible utile devrait fabriquer elle-même le
@@ -38,7 +39,7 @@ cargo fuzz run --target x86_64-unknown-linux-gnu pcap_reader -- -max_len=262144
 est compilé pour musl et vise cette cible par défaut, que les sanitizers
 refusent. `script/fuzz/smoke.sh` donne de lui-même la cible de l'hôte.
 
-La CI exécute les trois cibles avec un budget borné à chaque push (job
+La CI exécute les quatre cibles avec un budget borné à chaque push (job
 « Fuzzing borné » de `ci.yml`) ; un crash y dépose son entrée dans l'artefact
 `fuzz-artifacts`.
 
@@ -48,7 +49,8 @@ Le corpus (`corpus/`) et les entrées de crash (`artifacts/`) ne sont pas
 versionnés. `script/fuzz/prepare-corpus.sh` reconstruit le corpus initial à
 partir des fixtures du dépôt : petites captures du corpus TShark, matrices
 LFMS de chaque type de liaison, relevés WinAudit dans chaque encodage accepté,
-et quelques entrées malformées déterministes.
+trames extraites des captures pcap (`script/fuzz/extract-frames.py`), et
+quelques entrées malformées déterministes.
 
 Seules les entrées qui reproduisent un défaut corrigé sont versionnées, dans
 `regressions/<cible>/` ; le script les recopie dans le corpus, pour qu'un

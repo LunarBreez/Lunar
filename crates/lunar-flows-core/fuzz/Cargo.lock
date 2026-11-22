@@ -264,8 +264,11 @@ dependencies = [
 name = "lunar-flows-core-fuzz"
 version = "0.0.0"
 dependencies = [
+ "libc",
  "libfuzzer-sys",
  "lunar-flows-core",
+ "packet_parser",
+ "pcap",
 ]
 
 [[package]]

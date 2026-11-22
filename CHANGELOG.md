@@ -13,7 +13,8 @@ Les versions suivent le format `## **[X.Y.Z] - AAAA-MM-JJ**`. L'entrée
 - **Changelog** : l'entrée « Changelog » du menu Aide affiche les notes de la
   dernière version au lieu de « Fonction à venir ».
 - **Fuzzing** : cibles cargo-fuzz sur les lecteurs de fichiers non fiables
-  (capture PCAP, matrice CSV, relevé WinAudit), bornées en CI.
+  (capture PCAP, matrice CSV, relevé WinAudit) et sur le décodage des trames
+  reçues en capture directe, bornées en CI.
 - **Release** : contrôle de passivité du binaire Linux (aucune primitive
   d'émission libpcap, aucun client HTTP embarqué).
 - **Dépendances** : sources vendorisées dans `vendor/`, limitées aux cibles
