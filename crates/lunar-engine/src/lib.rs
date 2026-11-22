@@ -825,6 +825,113 @@ mod tests {
         );
     }
 
+    /// Import d'un classeur de labels par la façade, comme le fait
+    /// l'interface : même rapport, même store et mêmes labels dans la
+    /// matrice et le graphe qu'avec le CSV de mêmes cellules ; le doublon en
+    /// désaccord part à l'arbitrage, la ligne sans label est comptée.
+    #[test]
+    fn xlsx_label_file_imports_through_the_facade_like_its_csv() {
+        let root = TempRoot::new("labels_xlsx");
+        let import = |label_file: &std::path::Path| {
+            let lunar = Lunar::new(root.paths()).unwrap();
+            let matrix = test_support::fixtures().join("20260703_NP_Matrice.csv");
+            lunar
+                .import_matrix_files(
+                    vec![matrix.to_string_lossy().into_owned()],
+                    Channel::new(|_| {}),
+                )
+                .unwrap();
+            let report = lunar
+                .import_label_file(
+                    label_file.to_string_lossy().into_owned(),
+                    Channel::new(|_| {}),
+                )
+                .unwrap();
+            let mut node_labels: Vec<(String, String)> = lunar
+                .get_graph_snapshot()
+                .unwrap()
+                .nodes
+                .values()
+                .filter_map(|node| Some((node.ip.clone(), node.label.clone()?)))
+                .collect();
+            // Les nœuds viennent d'une table de hachage : ordre fixé ici.
+            node_labels.sort();
+            let conflicts: Vec<(String, String, String, Vec<String>)> = lunar
+                .get_label_conflicts()
+                .unwrap()
+                .into_iter()
+                .map(|conflict| {
+                    (
+                        conflict.mac,
+                        conflict.ip,
+                        conflict.kept.1,
+                        conflict.dropped.into_iter().map(|c| c.1).collect(),
+                    )
+                })
+                .collect();
+            (
+                report.applied,
+                report.skipped_without_label,
+                report.conflicts.len(),
+                lunar.get_label_rows().unwrap(),
+                lunar.get_matrix_labels().unwrap(),
+                node_labels,
+                conflicts,
+            )
+        };
+
+        let csv = root.0.join("labels.csv");
+        std::fs::write(
+            &csv,
+            "mac,ip,label\n\
+             E0-D5-5E-28-9B-D4,192.168.1.181,Poste de relevé\n\
+             44:15:24:20:a5:64,192.168.1.254,Passerelle\n\
+             e0:d5:5e:28:9b:d4,192.168.1.181,Autre nom\n\
+             aa:bb:cc:dd:ee:09,10.0.0.9,\n",
+        )
+        .unwrap();
+        let from_csv = import(&csv);
+        let from_xlsx = import(&test_support::fixtures().join("20261122_labels_matrice.xlsx"));
+        assert_eq!(from_xlsx, from_csv, "classeur et CSV : même import");
+
+        let (applied, skipped, conflict_count, store, _, node_labels, conflicts) = from_xlsx;
+        assert!(applied >= 2, "{applied} nœud(s) renommé(s)");
+        assert_eq!(skipped, 1, "la ligne sans label est comptée");
+        assert_eq!(conflict_count, 1);
+        assert_eq!(
+            conflicts,
+            vec![(
+                "e0:d5:5e:28:9b:d4".to_string(),
+                "192.168.1.181".to_string(),
+                "Poste de relevé".to_string(),
+                vec!["Autre nom".to_string()],
+            )],
+            "premier label gardé, le second part à l'arbitrage"
+        );
+        for expected in [
+            ("e0:d5:5e:28:9b:d4", "192.168.1.181", "Poste de relevé"),
+            ("44:15:24:20:a5:64", "192.168.1.254", "Passerelle"),
+        ] {
+            assert!(
+                store.iter().any(
+                    |(mac, ip, label)| (mac.as_str(), ip.as_str(), label.as_str()) == expected
+                ),
+                "{expected:?} absent du store : {store:?}"
+            );
+        }
+        for expected in [
+            ("192.168.1.181", "Poste de relevé"),
+            ("192.168.1.254", "Passerelle"),
+        ] {
+            assert!(
+                node_labels
+                    .iter()
+                    .any(|(ip, label)| (ip.as_str(), label.as_str()) == expected),
+                "{expected:?} absent du graphe : {node_labels:?}"
+            );
+        }
+    }
+
     /// `export_logs` archive `AppPaths::log_dir` ; sans ce dossier, l'erreur
     /// garde son `kind` structuré.
     #[test]
