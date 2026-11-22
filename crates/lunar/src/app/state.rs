@@ -35,6 +35,7 @@ use lunar_ui_logic::errors::{ErrorMessage, capture_error_message};
 use lunar_ui_logic::live_capture::LiveCapture;
 use lunar_ui_logic::menu::{MenuActionId, MenuContext, MenuView, is_action_enabled};
 
+use crate::app::about::{CHANGELOG_TITLE, changelog_message};
 use crate::app::bridge::{Bridge, TaggedEvent};
 use crate::app::graph_slot::{GraphSlot, GraphSlotEvent};
 use crate::app::packet_log::PacketLog;
@@ -46,9 +47,6 @@ use crate::widgets::toast::{ToastKind, ToastStack};
 /// Message du verrou d'import.
 pub const BUSY_MESSAGE: &str =
     "Une opération d'importation ou de sauvegarde est déjà en cours. Veuillez patienter.";
-
-/// Notification d'une fonction pas encore disponible.
-pub const NOT_YET_MESSAGE: &str = "Fonction à venir dans LUNAR";
 
 /// Question de la réinitialisation d'un relevé non enregistré.
 pub const RESET_QUESTION: &str =
@@ -343,12 +341,6 @@ impl AppState {
     fn busy(&self, cx: &mut Context<Self>) {
         info!("{BUSY_MESSAGE}");
         self.toast(ToastKind::Info, BUSY_MESSAGE, cx);
-    }
-
-    /// Fonction pas encore disponible.
-    fn not_yet(&self, what: &str, cx: &mut Context<Self>) {
-        info!("[Menu] {what} : fonction à venir");
-        self.toast(ToastKind::Info, NOT_YET_MESSAGE, cx);
     }
 
     /// Montre une erreur du moteur.
@@ -666,7 +658,7 @@ impl AppState {
             A::ExportCsv => self.export_csv_dialog(cx),
             A::ExportLogs => self.export_logs_dialog(cx),
             A::ExportLabels => crate::app::labels::export_labels(self, cx),
-            A::Changelog => self.not_yet(id.as_str(), cx),
+            A::Changelog => self.show_message(CHANGELOG_TITLE, changelog_message(), cx),
         }
     }
 

@@ -141,7 +141,8 @@ DBUS_SESSION_BUS_ADDRESS -u XAUTHORITY`).
   - Notification de succès de chaque export.
   - Préréglages BPF : « IPv4 uniquement », « Trafic web (80/443) », « SYN TCP
     uniquement ».
-- **Limite connue.** L'entrée « Nouveautés » affiche « Fonction à venir ».
+- **Changelog.** L'entrée « Changelog » du menu Aide affiche les notes de la
+  dernière version, tirées de `CHANGELOG.md`.
 
 ## Intégration continue et versions
 
