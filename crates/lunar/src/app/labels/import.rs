@@ -194,7 +194,7 @@ impl LabelImportPanel {
         if self.converting || !take_import_lock(&self.state, cx) {
             return;
         }
-        let dialog = dialogs::pick_csv(None, LABEL_FILE_FILTER);
+        let dialog = dialogs::pick_label_file(None, LABEL_FILE_FILTER);
         let state = self.state.clone();
         cx.spawn(async move |this, cx| {
             let path = dialog.await;
@@ -405,7 +405,8 @@ impl LabelImportPanel {
         cx.notify();
     }
 
-    /// Fichiers déposés sur le panneau : le premier `.csv` est importé.
+    /// Fichiers déposés sur le panneau : le premier `.csv` ou `.xlsx` est
+    /// importé.
     fn on_drop(&mut self, paths: &ExternalPaths, cx: &mut Context<Self>) {
         if self.converting {
             return;
@@ -422,7 +423,7 @@ impl LabelImportPanel {
                 }
             }
             DroppedPathsRouting::Files { .. } | DroppedPathsRouting::Ignored => {
-                info!("drop ignoré : aucun fichier .csv");
+                info!("drop ignoré : aucun fichier .csv ou .xlsx");
             }
         }
     }

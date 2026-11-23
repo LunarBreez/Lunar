@@ -32,9 +32,11 @@ use lunar_engine::setup::system_info::{CPU_SAMPLE_PERIOD, CpuSampler};
 use lunar_engine::state::graph::GraphUpdate;
 use lunar_ui_logic::capture_store::{CaptureStore, StoreEffect};
 use lunar_ui_logic::errors::{ErrorMessage, capture_error_message};
+use lunar_ui_logic::investigation::view::{PARTIAL_SURVEY_TITLE, partial_survey_message};
 use lunar_ui_logic::live_capture::LiveCapture;
 use lunar_ui_logic::menu::{MenuActionId, MenuContext, MenuView, is_action_enabled};
 
+use crate::app::about::{CHANGELOG_TITLE, changelog_message};
 use crate::app::bridge::{Bridge, TaggedEvent};
 use crate::app::graph_slot::{GraphSlot, GraphSlotEvent};
 use crate::app::packet_log::PacketLog;
@@ -46,9 +48,6 @@ use crate::widgets::toast::{ToastKind, ToastStack};
 /// Message du verrou d'import.
 pub const BUSY_MESSAGE: &str =
     "Une opération d'importation ou de sauvegarde est déjà en cours. Veuillez patienter.";
-
-/// Notification d'une fonction pas encore disponible.
-pub const NOT_YET_MESSAGE: &str = "Fonction à venir dans LUNAR";
 
 /// Question de la réinitialisation d'un relevé non enregistré.
 pub const RESET_QUESTION: &str =
@@ -345,12 +344,6 @@ impl AppState {
         self.toast(ToastKind::Info, BUSY_MESSAGE, cx);
     }
 
-    /// Fonction pas encore disponible.
-    fn not_yet(&self, what: &str, cx: &mut Context<Self>) {
-        info!("[Menu] {what} : fonction à venir");
-        self.toast(ToastKind::Info, NOT_YET_MESSAGE, cx);
-    }
-
     /// Montre une erreur du moteur.
     pub fn show_error(&mut self, err: &CaptureStateError, cx: &mut Context<Self>) {
         self.show_error_message(capture_error_message(err), cx);
@@ -432,6 +425,26 @@ impl AppState {
                     }
                     this.session_dirty = dirty.unwrap_or(true);
                     this.changed(cx);
+                },
+            )
+            .detach();
+    }
+
+    /// Prévient si le relevé qui vient d'être chargé (import de matrices,
+    /// ouverture de projet) provient d'un export partiel.
+    pub fn warn_if_partial(&mut self, cx: &mut Context<Self>) {
+        self.bridge
+            .run(
+                cx,
+                |lunar| lunar.partial_filters(),
+                |this, filters, cx| match filters {
+                    Ok(filters) => {
+                        if let Some(message) = partial_survey_message(&filters) {
+                            warn!("Relevé partiel, filtres : {}", filters.join(" | "));
+                            this.show_message(PARTIAL_SURVEY_TITLE, message, cx);
+                        }
+                    }
+                    Err(err) => warn!("partial_filters a échoué : {err}"),
                 },
             )
             .detach();
@@ -658,15 +671,16 @@ impl AppState {
                 info!("Fermeture demandée");
                 self.request_exit(cx);
             }
-            A::ExportSynthesis | A::ExportLabelsToComplete | A::ReloadSurvey => {
-                cx.emit(AppEvent::InvestigationAction(id))
-            }
+            A::ExportSynthesis
+            | A::ExportLabelsToComplete
+            | A::ExportFilteredFlows
+            | A::ReloadSurvey => cx.emit(AppEvent::InvestigationAction(id)),
             A::OpenProject => self.open_project_dialog(cx),
             A::SaveProject => self.save_project_dialog(cx),
             A::ExportCsv => self.export_csv_dialog(cx),
             A::ExportLogs => self.export_logs_dialog(cx),
             A::ExportLabels => crate::app::labels::export_labels(self, cx),
-            A::Changelog => self.not_yet(id.as_str(), cx),
+            A::Changelog => self.show_message(CHANGELOG_TITLE, changelog_message(), cx),
         }
     }
 
@@ -968,6 +982,7 @@ impl AppState {
                 Ok(()) => {
                     info!("Relevé récupéré depuis l'autosave");
                     this.refresh_flags(cx);
+                    this.warn_if_partial(cx);
                 }
                 Err(err) => {
                     error!("Récupération impossible: {err}");

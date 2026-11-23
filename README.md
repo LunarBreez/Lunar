@@ -10,7 +10,7 @@ Relevé de matrices de flux réseau, avec une interface native
 - capture en direct ;
 - import de PCAP et de matrices ;
 - graphe des flux ;
-- labels (CSV, relevés WinAudit, conflits, arbitrage) ;
+- labels (CSV ou Excel, relevés WinAudit, conflits, arbitrage) ;
 - investigation et synthèse ;
 - projets et exports.
 
@@ -94,9 +94,11 @@ cargo fmt --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 script/build-windows-check.sh          # clippy et .exe Windows (cargo-xwin)
-script/fuzz/smoke.sh                   # fuzzing borné des lecteurs de fichiers
+script/fuzz/smoke.sh                   # fuzzing borné des lecteurs et des trames
 script/ci/tests/test-check-binary-is-passive.sh
 script/ci/check-binary-is-passive.sh target/release/lunar
+script/ci/tests/test-check-binary-glibc-floor.sh
+script/ci/tests/test-check-windows-npcap-delayload.sh
 ```
 
 Le fuzzing (cargo-fuzz, toolchain nightly) est décrit dans
@@ -141,20 +143,26 @@ DBUS_SESSION_BUS_ADDRESS -u XAUTHORITY`).
   - Notification de succès de chaque export.
   - Préréglages BPF : « IPv4 uniquement », « Trafic web (80/443) », « SYN TCP
     uniquement ».
-- **Limite connue.** L'entrée « Nouveautés » affiche « Fonction à venir ».
+- **Changelog.** L'entrée « Changelog » du menu Aide affiche les notes de la
+  dernière version, tirées de `CHANGELOG.md`.
 
 ## Intégration continue et versions
 
 - **`.github/workflows/ci.yml`**, à chaque push sur `main` et sur chaque pull
   request :
   - Linux (Ubuntu 22.04) : formatage, clippy `-D warnings` et tests ;
-  - Windows : clippy, compilation et `--version` sans Npcap ;
+  - Windows : clippy, compilation, `--version` sans Npcap et `wpcap.dll` en
+    chargement différé ;
   - dépendances : `cargo deny check` (avis RustSec, licences, sources), selon
-    `deny.toml` ;
+    `deny.toml` ; `cargo audit` (avis RustSec, second outil) ; `cargo vet`
+    (chaque crate audité ou exempté, voir « Audits des dépendances ») ;
+    `cargo udeps` (dépendances déclarées mais inutilisées) ;
   - fuzzing borné des lecteurs de fichiers non fiables (capture PCAP, matrice
-    CSV, relevé WinAudit), 90 s par cible ;
+    CSV, relevé WinAudit) et du décodage des trames, 90 s par cible ;
   - garde-fous de release : le contrôle de passivité est éprouvé sur des
-    binaires fabriqués pour émettre, qu'il doit refuser.
+    binaires fabriqués pour émettre, qu'il doit refuser ; celui du plancher
+    glibc, sur un binaire qui exige plus que le plancher donné ; celui de
+    `wpcap.dll`, sur des listes d'imports où elle est importée directement.
 - **`.github/workflows/release.yml`**, au push d'un tag `vX.Y.Z` égal à la
   version du workspace :
   - binaires release Linux et Windows, avec un smoke test pour chacun : sur
@@ -163,6 +171,10 @@ DBUS_SESSION_BUS_ADDRESS -u XAUTHORITY`).
     libpcap importée, aucun client HTTP embarqué
     (`script/ci/check-binary-is-passive.sh`) ; le binaire Windows n'est pas
     couvert ;
+  - chargement différé de `wpcap.dll` dans le binaire Windows, qui démarre
+    ainsi sans Npcap (`script/ci/check-windows-npcap-delayload.sh`) ;
+  - plancher glibc du binaire Linux : aucun symbole au-delà de la glibc 2.35
+    d'Ubuntu 22.04 (`script/ci/check-binary-glibc-floor.sh`) ;
   - archives `lunar-X.Y.Z-x86_64-linux-gnu.tar.gz` et
     `lunar-X.Y.Z-x86_64-windows.zip`, `SHA256SUMS` ;
   - SBOM CycloneDX 1.5 de chaque cible (`lunar-X.Y.Z-<cible>.cdx.json`) ;
@@ -223,6 +235,32 @@ script/vendor.sh --verify                     # vendor/ identique à crates.io ?
 --update`, qui réaligne aussi le `Cargo.lock` du fuzzing. La CI régénère
 `vendor/` depuis crates.io et refuse tout écart avec ce qui est commité. Les
 sources vendorisées ne sont pas modifiées à la main.
+
+### Audits des dépendances
+
+`supply-chain/` est le registre [cargo-vet](https://mozilla.github.io/cargo-vet/)
+du dépôt. Chaque crate des deux `Cargo.lock`, à sa version exacte, doit y être
+couvert de l'une de ces façons :
+
+- un audit publié par une organisation importée (Bytecode Alliance, Embark,
+  Google, ISRG, Mozilla, Zcash), figé dans `supply-chain/imports.lock` ;
+- un audit du projet, dans `supply-chain/audits.toml` (aucun pour l'instant) ;
+- une exemption dans `supply-chain/config.toml` : le crate est accepté sans
+  audit. Les exemptions sont le reste à auditer, pas une validation.
+
+Une dépendance ajoutée ou mise à jour fait donc échouer la CI tant qu'elle
+n'est ni auditée ni exemptée :
+
+```sh
+cargo vet                         # ce qui manque, et les diffs à relire
+cargo vet certify <crate> <version>     # après relecture : inscrire un audit
+cargo vet regenerate exemptions   # sinon : accepter sans audit, explicitement
+cargo vet regenerate imports      # rafraîchir les audits importés (réseau)
+```
+
+`script/ci/install-cargo-vet.sh`, `install-cargo-audit.sh` et
+`install-cargo-udeps.sh` installent les versions épinglées des trois outils ;
+`script/ci/check-unused-deps.sh` lance cargo-udeps sur sa toolchain nightly.
 
 ## Hors périmètre
 

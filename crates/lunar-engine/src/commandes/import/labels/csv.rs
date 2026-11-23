@@ -1,6 +1,10 @@
 //! Lecture et parsing des fichiers de labels CSV : lignes brutes, détection
 //! d'en-tête, normalisation des champs mac/ip/label vers les formes produites
 //! par le parser de paquets.
+//!
+//! Un classeur `.xlsx` est lu par le même chemin : sa première feuille est
+//! rendue en texte CSV (cf. [`lunar_flows_core::xlsx::first_sheet_as_csv`])
+//! avant tout contrôle.
 
 use std::{io::ErrorKind, net::IpAddr};
 
@@ -35,9 +39,38 @@ impl LabelRow {
     }
 }
 
-/// Lit le fichier en mémoire. Retire le BOM UTF-8 d'Excel ; un chemin
-/// inexistant est une erreur explicite, pas un fichier vide.
-fn read_label_file(csv_path: &str) -> Result<String, CaptureStateError> {
+/// Erreur « fichier de labels introuvable », pour un CSV comme un classeur.
+fn label_file_not_found(csv_path: &str) -> CaptureStateError {
+    std::io::Error::new(
+        ErrorKind::NotFound,
+        format!("fichier de labels introuvable : {csv_path}"),
+    )
+    .into()
+}
+
+/// Lit le fichier en mémoire et rend son texte CSV avec son séparateur de
+/// colonnes. Retire le BOM UTF-8 d'Excel ; un chemin inexistant est une
+/// erreur explicite, pas un fichier vide. Un classeur `.xlsx` donne sa
+/// première feuille, toujours séparée par des virgules.
+fn read_label_file(csv_path: &str) -> Result<(String, u8), CaptureStateError> {
+    let path = std::path::Path::new(csv_path);
+    if lunar_flows_core::xlsx::is_xlsx(path) {
+        if !path.exists() {
+            return Err(label_file_not_found(csv_path));
+        }
+        // Séparateur imposé, pas détecté : un label qui contient des
+        // points-virgules ne doit pas faire découper la feuille autrement.
+        let csv_data = lunar_flows_core::xlsx::first_sheet_as_csv(path, LABEL_COLUMNS)?;
+        return Ok((csv_data, DELIMITERS[0]));
+    }
+    read_label_text(csv_path).map(|csv_data| {
+        let delimiter = detect_delimiter(&csv_data);
+        (csv_data, delimiter)
+    })
+}
+
+/// Texte d'un fichier de labels CSV, BOM retiré.
+fn read_label_text(csv_path: &str) -> Result<String, CaptureStateError> {
     match std::fs::read_to_string(csv_path) {
         // Excel écrit un BOM en tête des « CSV UTF-8 » : sans ce retrait il
         // collait à la première MAC, qui devenait invalide.
@@ -47,14 +80,13 @@ fn read_label_file(csv_path: &str) -> Result<String, CaptureStateError> {
             .unwrap_or(csv_data)),
         // Un chemin inexistant était lu comme un fichier vide : l'import
         // vidait alors le store de labels sans un mot. Erreur explicite.
-        Err(error) if error.kind() == ErrorKind::NotFound => Err(std::io::Error::new(
-            ErrorKind::NotFound,
-            format!("fichier de labels introuvable : {csv_path}"),
-        )
-        .into()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Err(label_file_not_found(csv_path)),
         Err(error) => Err(error.into()),
     }
 }
+
+/// Colonnes d'un fichier de labels : mac, ip, label.
+const LABEL_COLUMNS: usize = 3;
 
 /// Séparateurs de colonnes acceptés. La virgule, forme de référence de
 /// l'application (export de labels, store), est en tête : elle gagne à égalité.
@@ -154,7 +186,7 @@ fn classify_label_record(
         }
         .into());
     }
-    if record.len() < 3 {
+    if record.len() < LABEL_COLUMNS {
         Ok(LabelRecordOutcome::Invalid(
             line,
             label_record_to_display(&record),
@@ -171,9 +203,9 @@ fn classify_label_record(
 fn read_label_records(
     csv_path: &str,
 ) -> Result<Vec<(usize, csv::StringRecord)>, CaptureStateError> {
-    let file = read_label_file(csv_path)?;
+    let (file, delimiter) = read_label_file(csv_path)?;
     let mut rdr = csv::ReaderBuilder::new()
-        .delimiter(detect_delimiter(&file))
+        .delimiter(delimiter)
         .has_headers(false)
         .flexible(true)
         .trim(csv::Trim::All)
@@ -282,6 +314,95 @@ mod tests {
     use super::super::super::test_support::TempDir;
     use super::*;
     use std::fs;
+
+    /// Un classeur de labels est lu comme le CSV de mêmes cellules : mêmes
+    /// lignes, mêmes numéros, mêmes normalisations, mêmes lignes sans label.
+    /// Seule la première feuille compte, et une formule donne sa valeur.
+    #[test]
+    fn xlsx_label_file_reads_like_the_equivalent_csv() {
+        let xlsx = crate::test_support::fixtures().join("20261122_labels.xlsx");
+        let from_xlsx = read_label_rows_report(&xlsx.to_string_lossy()).unwrap();
+
+        let dir = TempDir::new("labels_xlsx_equivalent");
+        let csv = dir.path().join("labels.csv");
+        fs::write(
+            &csv,
+            "mac,ip,label\n\
+             AA-BB-CC-DD-EE-01,10.0.0.1,Automate ligne 1\n\
+             aabb.ccdd.ee02,10.0.0.2,\"Poste; supervision, salle A\"\n\
+             ,,\n\
+             aa:bb:cc:dd:ee:03,10.0.0.3,\n\
+             aa:bb:cc:dd:ee:04,2001:0db8:0000:0000:0000:0000:0000:0004,Passerelle\n\
+             aa:bb:cc:dd:ee:05,10.0.0.5,Serveur\n\
+             aa:bb:cc:dd:ee:06,10.0.0.6,Imprimante,étage 2\n\
+             aa:bb:cc:dd:ee:07,10.0.0.7,\"=HYPERLINK(\"\"http://exemple.invalid\"\")\"\n",
+        )
+        .unwrap();
+        let from_csv = read_label_rows_report(&csv.to_string_lossy()).unwrap();
+
+        let fields = |rows: &[LabelRow]| -> Vec<(usize, String, String, String)> {
+            rows.iter()
+                .map(|row| (row.line, row.mac.clone(), row.ip.clone(), row.label.clone()))
+                .collect()
+        };
+        assert_eq!(fields(&from_xlsx.rows), fields(&from_csv.rows));
+        assert_eq!(from_xlsx.without_label, 1);
+        assert_eq!(from_csv.without_label, 1);
+
+        let rows = from_xlsx.rows;
+        assert!(is_header_row(&rows[0]), "en-tête mac, ip, label reconnu");
+        assert_eq!(rows.len(), 7);
+        assert_eq!(
+            rows[1].mac, "aa:bb:cc:dd:ee:01",
+            "MAC d'inventaire normalisée"
+        );
+        assert_eq!(rows[2].label, "Poste; supervision, salle A");
+        assert_eq!((rows[3].line, rows[3].ip.as_str()), (6, "2001:db8::4"));
+        assert_eq!(
+            rows[4].label, "Serveur",
+            "valeur de la formule, pas son texte"
+        );
+        assert_eq!(
+            rows[5].label, "Imprimante étage 2",
+            "colonne de plus jointe au label"
+        );
+        assert!(
+            rows.iter().all(|row| !row.label.contains("Feuille 2")),
+            "la deuxième feuille n'est pas lue"
+        );
+        super::super::validation::verif_mac_ip_format_rows(&rows[1..]).unwrap();
+    }
+
+    /// Un classeur refusé l'est avec un message qui situe la faute : cellule
+    /// en erreur, fichier qui n'est pas un classeur, chemin absent.
+    #[test]
+    fn xlsx_label_file_errors_are_explicit() {
+        let broken = crate::test_support::fixtures().join("20261122_labels_erreur.xlsx");
+        let message = read_label_rows(&broken.to_string_lossy())
+            .unwrap_err()
+            .to_string();
+        assert!(
+            message.contains("ligne 3 invalide: cellule en erreur (#N/A)"),
+            "{message}"
+        );
+
+        let dir = TempDir::new("labels_xlsx_errors");
+        let fake = dir.path().join("labels.xlsx");
+        fs::write(&fake, "mac,ip,label\naa:bb:cc:dd:ee:01,10.0.0.1,PC\n").unwrap();
+        let message = read_label_rows(&fake.to_string_lossy())
+            .unwrap_err()
+            .to_string();
+        assert!(message.contains("ouverture XLSX impossible"), "{message}");
+
+        let missing = dir.path().join("absent.xlsx");
+        let message = read_label_rows(&missing.to_string_lossy())
+            .unwrap_err()
+            .to_string();
+        assert!(
+            message.contains("fichier de labels introuvable"),
+            "{message}"
+        );
+    }
 
     /// Chemins avec espaces, Unicode et caractères spéciaux shell :
     /// l'import de labels lit le fichier tel quel (`std::fs`, jamais de

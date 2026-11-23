@@ -898,6 +898,28 @@ fn record_observed_mac(node: &mut Node, mac: &str, updates: &mut Vec<GraphUpdate
     updates.push(GraphUpdate::NodeUpdated(node.clone()));
 }
 
+/// Clé, dans [`GraphData::edges`], de l'arête à laquelle un flux de la
+/// matrice contribue : celle que [`GraphData::add_packet_flow`] donne à
+/// l'arête, calculée sans construire le graphe. Sert à retrouver les lignes
+/// de la matrice derrière une sélection d'arêtes (export des seuls flux
+/// affichés).
+pub fn edge_key_of_flow(flow: &PacketFlowOwned) -> String {
+    let link = LinkView::of(&flow.data_link);
+    if let Some(internet) = flow.internet.as_ref()
+        && let (Some(source_ip), Some(destination_ip)) =
+            (internet.source_ip, internet.destination_ip)
+        && is_valid_ip(internet.ip_source_type.as_ref())
+        && is_valid_ip(internet.ip_destination_type.as_ref())
+    {
+        let source = stable_id(&l3_node_key(link.vlan_id, &source_ip.to_string()));
+        let destination = stable_id(&l3_node_key(link.vlan_id, &destination_ip.to_string()));
+        return undirected_edge_key(&source, &destination, &best_protocol_label(flow));
+    }
+    let source = stable_id(&l2_node_key(link.vlan_id, &link.source_mac));
+    let destination = stable_id(&l2_node_key(link.vlan_id, &link.destination_mac));
+    undirected_edge_key(&source, &destination, &link.protocol)
+}
+
 /// Vrai si un nom de protocole est vide ou « unknown » (toute casse) :
 /// il ne compte pas comme détecté.
 fn is_unknown(s: &str) -> bool {
@@ -1515,6 +1537,61 @@ mod add_packet_flow_tests {
     /// Les ids de nœuds et d'arêtes sont dérivés de l'identité, plus d'un
     /// compteur global : deux graphes construits séparément (ordre inversé)
     /// donnent les mêmes ids — snapshots déterministes.
+    /// `edge_key_of_flow` donne, sans construire le graphe, la clé de l'arête
+    /// que `add_packet_flow` crée pour le même flux : chemin L3, repli L2,
+    /// VLAN, et les deux sens d'une même relation.
+    #[test]
+    fn edge_key_of_flow_matches_the_edge_built_from_the_same_flow() {
+        let l3 = flow(
+            "aa:aa:aa:aa:aa:01",
+            "10.0.0.1",
+            "aa:aa:aa:aa:aa:02",
+            "10.0.0.2",
+        );
+        let reply = flow(
+            "aa:aa:aa:aa:aa:02",
+            "10.0.0.2",
+            "aa:aa:aa:aa:aa:01",
+            "10.0.0.1",
+        );
+        let tagged = flow_on_vlan(
+            "aa:aa:aa:aa:aa:01",
+            "10.0.0.1",
+            "aa:aa:aa:aa:aa:02",
+            "10.0.0.2",
+            12,
+        );
+        let mut l2 = l3.clone();
+        l2.internet = None;
+        l2.transport = None;
+        l2.application = None;
+
+        for sample in [&l3, &reply, &tagged, &l2] {
+            let mut graph = GraphData::new();
+            add(&mut graph, sample);
+            assert_eq!(
+                graph.edges.keys().collect::<Vec<_>>(),
+                vec![&edge_key_of_flow(sample)],
+                "clé d'arête de {sample:?}"
+            );
+        }
+        assert_eq!(
+            edge_key_of_flow(&l3),
+            edge_key_of_flow(&reply),
+            "les deux sens partagent l'arête"
+        );
+        assert_ne!(
+            edge_key_of_flow(&l3),
+            edge_key_of_flow(&tagged),
+            "le VLAN sépare"
+        );
+        assert_ne!(
+            edge_key_of_flow(&l3),
+            edge_key_of_flow(&l2),
+            "L3 et L2 séparés"
+        );
+    }
+
     #[test]
     fn node_and_edge_ids_are_stable_across_graphs_and_insertion_order() {
         let a_to_b = flow(

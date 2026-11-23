@@ -97,6 +97,11 @@ jobs:
         env:
           EXPECT_LIBPCAP: "1"
 
+      # Cible livrée : Ubuntu 22.04, glibc 2.35. Un runner plus récent ferait
+      # exiger au binaire des symboles que la cible n'a pas.
+      - name: Plancher glibc du binaire
+        run: script/ci/check-binary-glibc-floor.sh target/release/lunar 2.35
+
       - name: Smoke test
         run: script/ci/smoke-linux.sh target/release/lunar
 
@@ -167,6 +172,14 @@ jobs:
 
       - name: Smoke test (sans Npcap)
         run: target/release/lunar.exe --version | grep -E '^lunar [0-9]'
+
+      # LUNAR doit démarrer sans Npcap : wpcap.dll en chargement différé,
+      # jamais en import direct. Vérifié sur le binaire livré.
+      - name: Outils LLVM de la toolchain
+        run: rustup component add llvm-tools
+
+      - name: wpcap.dll en chargement différé
+        run: script/ci/check-windows-npcap-delayload.sh target/release/lunar.exe
 
       - name: Archive
         run: |

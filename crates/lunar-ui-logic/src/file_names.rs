@@ -93,6 +93,12 @@ pub fn labels_to_complete_csv_name(now: &LocalDateTime) -> String {
     format!("{}_DR_labels_a_completer.csv", compact_date(now))
 }
 
+/// Export des flux affichés (vue d'investigation) :
+/// `AAAAMMJJ_DR_Matrice_partielle.csv`.
+pub fn filtered_flows_csv_name(now: &LocalDateTime) -> String {
+    format!("{}_DR_Matrice_partielle.csv", compact_date(now))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,6 +154,10 @@ mod tests {
         assert_eq!(
             labels_to_complete_csv_name(&now),
             "20261109_DR_labels_a_completer.csv"
+        );
+        assert_eq!(
+            filtered_flows_csv_name(&now),
+            "20261109_DR_Matrice_partielle.csv"
         );
     }
 }

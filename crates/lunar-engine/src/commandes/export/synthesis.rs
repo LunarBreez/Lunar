@@ -100,14 +100,16 @@ pub(crate) fn write_matrix_with_fingerprint(
     link_type: Option<packet_parser::LinkType>,
     context: &SurveyContext,
     period: Option<lunar_flows_core::lfms::ObservedPeriod>,
+    filter: Option<&str>,
     html_path: &Path,
 ) -> Result<WrittenCsv, ExportError> {
     let csv_path = sibling_csv_path(html_path)?;
-    FlowMatrix::write_rows_to_csv_with_context(
+    FlowMatrix::write_rows_to_csv_with_filter(
         rows,
         link_type,
         context,
         period,
+        filter,
         &csv_path.to_string_lossy(),
     )?;
     let content = std::fs::read(&csv_path)?;
@@ -134,7 +136,7 @@ pub fn export_synthesis_matrix(
     // Même ordre de verrouillage que le pipeline et les imports (matrice puis
     // graphe) : les deux copies datent du même instant. L'écriture disque se
     // fait hors verrou.
-    let (rows, link_type, context, period, graph_snapshot) = {
+    let (rows, link_type, context, period, filter, graph_snapshot) = {
         let matrix_guard = matrix.lock()?;
         let graph_guard = graph.lock()?;
         (
@@ -142,15 +144,19 @@ pub fn export_synthesis_matrix(
             matrix_guard.link_type,
             matrix_guard.context.clone(),
             matrix_guard.period,
+            matrix_guard.export_filter(None),
             graph_guard.get_all_graph_data(),
         )
     };
 
+    // Un relevé issu d'un export partiel le reste : le CSV joint à la
+    // synthèse le dit dans son préambule, comme tout autre export.
     let written = write_matrix_with_fingerprint(
         &rows,
         link_type,
         &context,
         period.known(),
+        filter.as_deref(),
         Path::new(&html_path),
     )?;
     log::info!(
@@ -217,6 +223,7 @@ mod tests {
             Some(packet_parser::LinkType::ETHERNET),
             &context,
             None,
+            None,
             &html,
         )
         .expect("export");
@@ -248,10 +255,11 @@ mod tests {
         let dir = temp_dir("stable");
         let rows = sample_rows();
         let context = SurveyContext::default();
-        let first = write_matrix_with_fingerprint(&rows, None, &context, None, &dir.join("a.html"))
-            .expect("premier export");
+        let first =
+            write_matrix_with_fingerprint(&rows, None, &context, None, None, &dir.join("a.html"))
+                .expect("premier export");
         let second =
-            write_matrix_with_fingerprint(&rows, None, &context, None, &dir.join("b.html"))
+            write_matrix_with_fingerprint(&rows, None, &context, None, None, &dir.join("b.html"))
                 .expect("second export");
         assert_eq!(first.sha256, second.sha256);
         let _ = std::fs::remove_dir_all(dir);

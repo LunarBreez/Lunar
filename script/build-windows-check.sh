@@ -7,7 +7,8 @@
 #   script/build-windows-check.sh
 #
 # Prérequis : cargo-xwin, cible x86_64-pc-windows-msvc sur la toolchain
-# 1.97.1. Le SDK Npcap est dans windows/npcap-sdk.
+# 1.97.1, llvm-readobj (rustup component add llvm-tools). Le SDK Npcap est
+# dans windows/npcap-sdk.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -23,18 +24,7 @@ cargo xwin clippy --workspace --all-targets --locked --target "$TARGET" -- -D wa
 cargo xwin build --profile windows-check --locked --target "$TARGET" -p lunar --bin lunar
 EXE="target/$TARGET/windows-check/lunar.exe"
 
-# wpcap.dll doit rester en chargement différé : sinon Windows
-# refuse de lancer LUNAR quand Npcap n'a pas le mode WinPcap.
-if command -v llvm-readobj >/dev/null; then
-  IMPORTS=$(llvm-readobj --coff-imports "$EXE")
-  if ! printf '%s\n' "$IMPORTS" | grep -A1 '^DelayImport {' | grep -q 'Name: wpcap.dll'; then
-    echo "wpcap.dll n'est pas en chargement différé" >&2
-    exit 1
-  fi
-  if printf '%s\n' "$IMPORTS" | grep -A1 '^Import {' | grep -qiE 'Name: (wpcap|packet)\.dll'; then
-    echo "wpcap.dll ou Packet.dll importée directement" >&2
-    exit 1
-  fi
-  echo "wpcap.dll en chargement différé : OK"
-fi
+# wpcap.dll doit rester en chargement différé : sinon Windows refuse de
+# lancer LUNAR quand Npcap n'a pas le mode WinPcap.
+script/ci/check-windows-npcap-delayload.sh "$EXE"
 ls -l "$EXE"

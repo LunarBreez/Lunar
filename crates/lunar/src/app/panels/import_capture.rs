@@ -677,6 +677,9 @@ fn import_done(
     let _ = panel.update(cx, |panel, cx| panel.import_finished(outcome, cx));
     if outcome == RunOutcome::Success {
         state.close_panel(PANEL, cx);
+        if kind == ImportKind::Matrices {
+            state.warn_if_partial(cx);
+        }
     }
     state.refresh_flags(cx);
 }

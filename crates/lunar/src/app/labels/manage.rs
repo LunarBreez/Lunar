@@ -612,7 +612,8 @@ impl LabelsPanel {
             return;
         }
         self.set_busy(true, cx);
-        let dialog = dialogs::pick_csv(Some("Importer un fichier de labels"), "Labels CSV");
+        let dialog =
+            dialogs::pick_label_file(Some("Importer un fichier de labels"), "Labels CSV ou Excel");
         let state = self.state.clone();
         cx.spawn(async move |this, cx| {
             let path = dialog.await;

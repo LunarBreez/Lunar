@@ -85,6 +85,8 @@ pub enum MenuActionId {
     ExportSynthesis,
     /// Exporter les labels à compléter.
     ExportLabelsToComplete,
+    /// Exporter les seuls flux affichés (matrice partielle).
+    ExportFilteredFlows,
     /// Rafraîchir le relevé de la vue d'investigation.
     ReloadSurvey,
     /// Aide des raccourcis clavier.
@@ -96,7 +98,7 @@ pub enum MenuActionId {
 }
 
 /// Nombre d'actions de menu.
-pub const MENU_ACTION_COUNT: usize = 23;
+pub const MENU_ACTION_COUNT: usize = 24;
 
 impl MenuActionId {
     /// Description de l'action dans [`MENU_ACTIONS`].
@@ -417,6 +419,13 @@ pub const MENU_ACTIONS: [MenuAction; MENU_ACTION_COUNT] = {
             Investigation,
         ),
         action(
+            A::ExportFilteredFlows,
+            "export-filtered-flows",
+            "Exporter les flux affichés (CSV partiel)…",
+            None,
+            Investigation,
+        ),
+        action(
             A::ReloadSurvey,
             "reload-survey",
             "Rafraîchir le relevé",
@@ -533,6 +542,7 @@ pub const MENU_SECTIONS: &[MenuSection] = {
             rows: &[
                 row(A::ExportSynthesis),
                 row(A::ExportLabelsToComplete),
+                row(A::ExportFilteredFlows),
                 SEP,
                 row(A::ReloadSurvey),
             ],
@@ -588,7 +598,9 @@ pub fn is_action_enabled(id: MenuActionId, ctx: &MenuContext) -> bool {
         A::OpenInvestigation => !ctx.running && !ctx.panel_open,
         A::ToggleGraph | A::BackToAnalyse => true,
         // Investigation
-        A::ExportSynthesis | A::ExportLabelsToComplete => idle && !ctx.loading && !ctx.exporting,
+        A::ExportSynthesis | A::ExportLabelsToComplete | A::ExportFilteredFlows => {
+            idle && !ctx.loading && !ctx.exporting
+        }
         A::ReloadSurvey => !ctx.loading,
         // Partout
         A::Quit | A::Shortcuts | A::About | A::Changelog => true,
@@ -838,6 +850,7 @@ mod tests {
         ("back-to-analyse", Some("Ctrl+I"), Some("ctrl-i")),
         ("export-synthesis", Some("Ctrl+S"), Some("ctrl-s")),
         ("export-labels-to-complete", Some("Ctrl+E"), Some("ctrl-e")),
+        ("export-filtered-flows", None, None),
         ("reload-survey", None, None),
         ("shortcuts", Some("F1"), Some("f1")),
         ("about", None, None),
@@ -989,6 +1002,7 @@ mod tests {
             ..inv
         });
         assert!(!state[A::ExportLabelsToComplete]);
+        assert!(!state[A::ExportFilteredFlows]);
         assert!(state[A::ReloadSurvey]);
     }
 

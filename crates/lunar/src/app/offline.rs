@@ -179,6 +179,7 @@ impl AppState {
                 Ok(()) => {
                     this.record_recent_project(&path);
                     this.refresh_flags(cx);
+                    this.warn_if_partial(cx);
                     info!("Projet ouvert");
                     this.toast(
                         ToastKind::Success,

@@ -140,6 +140,7 @@ impl Serialize for CaptureStateError {
                     ExportError::CsvAlreadyExists(path) => {
                         ExportErrorKind::CsvAlreadyExists(path.clone())
                     }
+                    ExportError::MissingFilter => ExportErrorKind::MissingFilter,
                 };
                 CaptureStateErrorKind::Export(kind)
             }

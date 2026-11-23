@@ -114,6 +114,10 @@ pub fn handle_export_error(err: &ExportError) -> String {
         ExportError::CsvAlreadyExists(path) => {
             format!("Le fichier {path} existe déjà : choisissez un autre nom pour la synthèse.")
         }
+        ExportError::MissingFilter => {
+            "Aucun filtre actif : exportez la matrice complète (Fichier › Exporter la matrice)."
+                .to_owned()
+        }
     }
 }
 
