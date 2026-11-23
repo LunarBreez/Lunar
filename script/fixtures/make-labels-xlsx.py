@@ -10,6 +10,12 @@ Deux classeurs hostiles les accompagnent : 20261122_classeur_cellule_lointaine.x
 des centaines de gigaoctets) et 20261122_classeur_hors_feuille.xlsx (cellule
 au-delà de la dernière ligne d'une feuille).
 
+Cinq autres fixent les cas de saisie au tableur : 20261122_labels_numeriques.xlsx
+(labels en cellules numériques, lus), 20261122_labels_mac_numerique.xlsx et
+20261122_labels_ip_numerique.xlsx (adresse en cellule numérique, refusée),
+20261122_labels_ligne_4.xlsx (tableau qui commence en ligne 4) et
+20261122_labels_colonne_b.xlsx (tableau qui commence en colonne B, refusé).
+
 Bibliothèque standard seule, sortie reproductible (dates et ordre figés) :
     python3 script/fixtures/make-labels-xlsx.py
 
@@ -28,7 +34,7 @@ ROOT = Path(__file__).resolve().parents[2]
 TARGET = ROOT / "fixtures" / "20261122_labels.xlsx"
 
 # None = ligne vide ; ("f", formule, valeur en cache) = cellule de formule ;
-# ("e", code) = cellule en erreur.
+# ("e", code) = cellule en erreur ; ("n", nombre) = cellule numérique.
 ROWS = [
     ["mac", "ip", "label"],
     ["AA-BB-CC-DD-EE-01", "10.0.0.1", "Automate ligne 1"],
@@ -52,6 +58,38 @@ OBSERVED = [
     ["e0:d5:5e:28:9b:d4", "192.168.1.181", "Autre nom"],
     ["aa:bb:cc:dd:ee:09", "10.0.0.9", ""],
 ]
+# Labels saisis comme des nombres : lus tels qu'affichés.
+NUMERIC_LABELS = [
+    ["mac", "ip", "label"],
+    ["aa:bb:cc:dd:ee:01", "10.0.0.1", ("n", "42")],
+    ["aa:bb:cc:dd:ee:02", "10.0.0.2", ("n", "1.5")],
+]
+# MAC 00:11:22:33:44:55 saisie sans séparateur : le tableur en a fait le
+# nombre 1122334455, zéros de tête perdus.
+NUMERIC_MAC = [
+    ["mac", "ip", "label"],
+    ["aa:bb:cc:dd:ee:01", "10.0.0.1", "Automate ligne 1"],
+    [("n", "1122334455"), "10.0.0.2", "Automate ligne 2"],
+]
+NUMERIC_IP = [
+    ["mac", "ip", "label"],
+    ["aa:bb:cc:dd:ee:01", ("n", "10"), "Automate ligne 1"],
+]
+# Tableau posé plus bas dans la feuille, sous trois lignes vides.
+FROM_LINE_4 = [
+    None,
+    None,
+    None,
+    ["mac", "ip", "label"],
+    ["aa:bb:cc:dd:ee:01", "10.0.0.1", "Automate ligne 1"],
+    ["aa:bb:cc:dd:ee:02", "10.0.0.2", "Automate ligne 2"],
+]
+# Tableau décalé d'une colonne : la colonne A est vide.
+FROM_COLUMN_B = [
+    ["", "mac", "ip", "label"],
+    ["", "aa:bb:cc:dd:ee:01", "10.0.0.1", "Automate ligne 1"],
+    ["", "aa:bb:cc:dd:ee:02", "10.0.0.2", "Automate ligne 2"],
+]
 HIDDEN = [["mac", "ip", "label"], ["aa:bb:cc:dd:ee:ff", "10.9.9.9", "Feuille 2, jamais lue"]]
 
 
@@ -70,6 +108,8 @@ def sheet_xml(rows):
             ref = f"{column(index)}{number}"
             if isinstance(cell, tuple) and cell[0] == "e":
                 out.append(f'<c r="{ref}" t="e"><v>{escape(cell[1])}</v></c>')
+            elif isinstance(cell, tuple) and cell[0] == "n":
+                out.append(f'<c r="{ref}"><v>{escape(cell[1])}</v></c>')
             elif isinstance(cell, tuple):
                 _, formula, cached = cell
                 out.append(f'<c r="{ref}" t="str"><f>{escape(formula)}</f><v>{escape(cached)}</v></c>')
@@ -142,6 +182,11 @@ def main():
     write(TARGET, ROWS)
     write(TARGET.with_name("20261122_labels_erreur.xlsx"), BROKEN)
     write(TARGET.with_name("20261122_labels_matrice.xlsx"), OBSERVED)
+    write(TARGET.with_name("20261122_labels_numeriques.xlsx"), NUMERIC_LABELS)
+    write(TARGET.with_name("20261122_labels_mac_numerique.xlsx"), NUMERIC_MAC)
+    write(TARGET.with_name("20261122_labels_ip_numerique.xlsx"), NUMERIC_IP)
+    write(TARGET.with_name("20261122_labels_ligne_4.xlsx"), FROM_LINE_4)
+    write(TARGET.with_name("20261122_labels_colonne_b.xlsx"), FROM_COLUMN_B)
     write(
         TARGET.with_name("20261122_classeur_cellule_lointaine.xlsx"),
         raw_sheet([("A1", "mac"), ("XFD1048576", "loin")]),

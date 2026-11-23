@@ -17,7 +17,10 @@ Les versions suivent le format `## **[X.Y.Z] - AAAA-MM-JJ**`. L'entrée
   exports qui en sont tirés.
 - **Labels depuis Excel** : un fichier de labels peut être un classeur
   `.xlsx` (première feuille, colonnes mac, ip, label), lu avec les mêmes
-  contrôles que le CSV ; une formule donne sa valeur, jamais son texte.
+  contrôles que le CSV ; une formule donne sa valeur, jamais son texte. Une
+  adresse MAC ou IP que le tableur a prise pour un nombre (zéros de tête
+  retirés) fait refuser le classeur, avec la ligne et la correction à
+  faire : colonne au format Texte.
 - **Sécurité** : un classeur XLSX de quelques centaines d'octets, déclarant
   deux cellules aux deux bouts d'une feuille, faisait réserver des centaines
   de gigaoctets à l'import et arrêtait l'application. La feuille est lue

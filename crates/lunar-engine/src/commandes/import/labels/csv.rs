@@ -60,7 +60,8 @@ fn read_label_file(csv_path: &str) -> Result<(String, u8), CaptureStateError> {
         }
         // Séparateur imposé, pas détecté : un label qui contient des
         // points-virgules ne doit pas faire découper la feuille autrement.
-        let csv_data = lunar_flows_core::xlsx::first_sheet_as_csv(path, LABEL_COLUMNS)?;
+        let csv_data =
+            lunar_flows_core::xlsx::first_sheet_as_csv(path, LABEL_COLUMNS, ADDRESS_COLUMNS)?;
         return Ok((csv_data, DELIMITERS[0]));
     }
     read_label_text(csv_path).map(|csv_data| {
@@ -87,6 +88,11 @@ fn read_label_text(csv_path: &str) -> Result<String, CaptureStateError> {
 
 /// Colonnes d'un fichier de labels : mac, ip, label.
 const LABEL_COLUMNS: usize = 3;
+
+/// Colonnes d'adresses en tête d'un fichier de labels : mac, ip. Dans un
+/// classeur elles doivent être du texte, un tableur réécrivant les adresses
+/// qu'il prend pour des nombres.
+const ADDRESS_COLUMNS: usize = 2;
 
 /// Séparateurs de colonnes acceptés. La virgule, forme de référence de
 /// l'application (export de labels, store), est en tête : elle gagne à égalité.
@@ -402,6 +408,98 @@ mod tests {
             message.contains("fichier de labels introuvable"),
             "{message}"
         );
+    }
+
+    /// Saisie au tableur : une adresse devenue un nombre est refusée avec sa
+    /// ligne et la correction à faire, un label numérique est lu tel
+    /// qu'affiché.
+    #[test]
+    fn xlsx_numeric_address_is_refused_and_numeric_label_is_read() {
+        let fixtures = crate::test_support::fixtures();
+        let message = read_label_rows(
+            &fixtures
+                .join("20261122_labels_mac_numerique.xlsx")
+                .to_string_lossy(),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            message.contains("ligne 3 invalide: la cellule de la colonne 1 n'est pas du texte"),
+            "{message}"
+        );
+        assert!(message.contains("1122334455"), "{message}");
+        assert!(message.contains("format Texte"), "{message}");
+
+        let message = read_label_rows(
+            &fixtures
+                .join("20261122_labels_ip_numerique.xlsx")
+                .to_string_lossy(),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            message.contains("ligne 2 invalide: la cellule de la colonne 2 n'est pas du texte"),
+            "{message}"
+        );
+
+        let rows = read_label_rows(
+            &fixtures
+                .join("20261122_labels_numeriques.xlsx")
+                .to_string_lossy(),
+        )
+        .unwrap();
+        let labels: Vec<&str> = rows.iter().skip(1).map(|row| row.label.as_str()).collect();
+        assert_eq!(labels, ["42", "1.5"]);
+    }
+
+    /// Tableau posé en ligne 4 : l'en-tête est reconnu et les numéros de
+    /// ligne restent ceux de la feuille. Tableau décalé en colonne B : rien
+    /// n'est recalé, chaque ligne est rapportée avec son numéro de feuille
+    /// (la MAC lue à la place de l'IP) et aucun label n'est accepté.
+    #[test]
+    fn xlsx_table_away_from_a1_keeps_sheet_lines_and_a_shifted_one_is_refused() {
+        use super::super::validation::verif_mac_ip_format_rows;
+        let fixtures = crate::test_support::fixtures();
+
+        let rows = read_label_rows(
+            &fixtures
+                .join("20261122_labels_ligne_4.xlsx")
+                .to_string_lossy(),
+        )
+        .unwrap();
+        assert!(is_header_row(&rows[0]), "en-tête reconnu en ligne 4");
+        let lines: Vec<usize> = rows.iter().map(|row| row.line).collect();
+        assert_eq!(lines, [4, 5, 6]);
+        verif_mac_ip_format_rows(&rows).unwrap();
+
+        let shifted = read_label_rows(
+            &fixtures
+                .join("20261122_labels_colonne_b.xlsx")
+                .to_string_lossy(),
+        )
+        .unwrap();
+        assert!(!is_header_row(&shifted[0]), "en-tête décalé non reconnu");
+        match verif_mac_ip_format_rows(&shifted) {
+            Err(CaptureStateError::Label(LabelError::InvalidMacIpFormat {
+                invalid_mac,
+                invalid_ip,
+            })) => {
+                assert!(invalid_mac.is_empty());
+                let reported: Vec<(usize, &str)> = invalid_ip
+                    .iter()
+                    .map(|(line, value, _)| (*line, value.as_str()))
+                    .collect();
+                assert_eq!(
+                    reported,
+                    [
+                        (1, "mac"),
+                        (2, "aa:bb:cc:dd:ee:01"),
+                        (3, "aa:bb:cc:dd:ee:02")
+                    ]
+                );
+            }
+            other => panic!("refus attendu sur les IP, obtenu : {other:?}"),
+        }
     }
 
     /// Chemins avec espaces, Unicode et caractères spéciaux shell :

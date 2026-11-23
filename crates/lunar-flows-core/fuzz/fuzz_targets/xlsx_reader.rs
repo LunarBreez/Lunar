@@ -193,6 +193,6 @@ fuzz_target!(|data: &[u8]| {
         }
     });
     let _ = std::panic::catch_unwind(|| {
-        let _ = first_sheet_as_csv(&file.0, 3);
+        let _ = first_sheet_as_csv(&file.0, 3, 2);
     });
 });
