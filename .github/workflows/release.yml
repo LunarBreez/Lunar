@@ -119,7 +119,7 @@ jobs:
         with:
           subject-path: dist/*.tar.gz
 
-      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+      - uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
         with:
           cosign-release: ${{ env.COSIGN_VERSION }}
 
@@ -195,7 +195,7 @@ jobs:
         with:
           subject-path: dist/*.zip
 
-      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+      - uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
         with:
           cosign-release: ${{ env.COSIGN_VERSION }}
 
@@ -244,7 +244,7 @@ jobs:
         with:
           subject-path: dist/*.cdx.json
 
-      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+      - uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
         with:
           cosign-release: ${{ env.COSIGN_VERSION }}
 
@@ -308,7 +308,7 @@ jobs:
           cat SHA256SUMS
           sha256sum -c SHA256SUMS
 
-      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+      - uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
         with:
           cosign-release: ${{ env.COSIGN_VERSION }}
 
